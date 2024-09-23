@@ -38,10 +38,12 @@ class ExecPrepareInstanceInfoOperation(BaseService):
         trans_data = data.get_one_of_inputs("trans_data")
         kwargs = data.get_one_of_inputs("kwargs")
 
-        if trans_data is None or trans_data == "${trans_data}":
-            # 表示没有加载上下文内容，则在此添加
-            trans_data = getattr(flow_context, kwargs["set_trans_data_dataclass"])()
+        # if trans_data is None or trans_data == "${trans_data}":
+        #    # 表示没有加载上下文内容，则在此添加
+        # 此处开始重置trans_data.
+        trans_data = getattr(flow_context, kwargs["set_trans_data_dataclass"])()
 
+        self.log_info("ExecPrepareInstanceInfoOperation trans_data {}".format(trans_data))
         iplist = kwargs["trans_data_var"]["iplist"]
         bk_cloud_id = int(kwargs["trans_data_var"]["bk_cloud_id"])
         instances = MongoNodeWithLabel.from_hosts(iplist, bk_cloud_id=bk_cloud_id)
