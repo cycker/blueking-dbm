@@ -12,6 +12,7 @@ from backend.flow.consts import MongoDBClusterRole
 from backend.flow.utils.mongodb import mongodb_password
 from backend.ticket.constants import InstanceType
 
+
 # entities
 # Node -> ReplicaSet -> Cluster[Rs,ShardedCluster]
 # MongoNodeWithLabel
@@ -40,6 +41,9 @@ class MongoNode:
             s.ip_port.split(":")[0], str(s.port), meta_role, s.machine.bk_cloud_id, s.machine_type, domain
         )
         return node
+
+    def equal(self, other: 'MongoNode') -> bool:
+        return self.ip == other.ip and self.port == other.port and self.bk_cloud_id == other.bk_cloud_id
 
 
 class ReplicaSet:
@@ -92,16 +96,16 @@ class MongoDBCluster:
     cluster_id: str
 
     def __init__(
-        self,
-        bk_cloud_id: int = None,
-        cluster_id: str = None,
-        name: str = None,
-        cluster_type: str = None,
-        major_version: str = None,
-        bk_biz_id: int = None,
-        immute_domain: str = None,
-        app: str = None,
-        region: str = None,
+            self,
+            bk_cloud_id: int = None,
+            cluster_id: str = None,
+            name: str = None,
+            cluster_type: str = None,
+            major_version: str = None,
+            bk_biz_id: int = None,
+            immute_domain: str = None,
+            app: str = None,
+            region: str = None,
     ):
         self.cluster_id = cluster_id
         self.name = name
@@ -119,6 +123,11 @@ class MongoDBCluster:
 
     @abstractmethod
     def get_mongos(self) -> List[MongoNode]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_connect_node(self) -> MongoNode:
+        """ 返回可连接的节点 集群是mongos, 副本集是第1个节点"""
         raise NotImplementedError
 
     @abstractmethod
@@ -146,19 +155,22 @@ class MongoDBCluster:
 
 
 class ReplicaSetCluster(MongoDBCluster):
+    def get_connect_node(self) -> MongoNode:
+        return self.shard.members[0]
+
     shard: ReplicaSet  # storages
 
     def __init__(
-        self,
-        bk_cloud_id=None,
-        cluster_id=None,
-        name=None,
-        major_version=None,
-        bk_biz_id=None,
-        immute_domain=None,
-        app: str = None,
-        region: str = None,
-        shard: ReplicaSet = None,
+            self,
+            bk_cloud_id=None,
+            cluster_id=None,
+            name=None,
+            major_version=None,
+            bk_biz_id=None,
+            immute_domain=None,
+            app: str = None,
+            region: str = None,
+            shard: ReplicaSet = None,
     ):
         super().__init__(
             bk_cloud_id,
@@ -187,23 +199,26 @@ class ReplicaSetCluster(MongoDBCluster):
 
 
 class ShardedCluster(MongoDBCluster):
+    def get_connect_node(self) -> MongoNode:
+        return self.get_mongos()[0]
+
     shards: List[ReplicaSet]  # storages
     mongos: List[MongoNode]  # proxies
     configsvr: ReplicaSet  # configs
 
     def __init__(
-        self,
-        bk_cloud_id=None,
-        cluster_id=None,
-        name=None,
-        major_version=None,
-        bk_biz_id=None,
-        immute_domain=None,
-        app: str = None,
-        region: str = None,
-        shards: List[ReplicaSet] = None,
-        mongos: List[MongoNode] = None,
-        configsvr: ReplicaSet = None,
+            self,
+            bk_cloud_id=None,
+            cluster_id=None,
+            name=None,
+            major_version=None,
+            bk_biz_id=None,
+            immute_domain=None,
+            app: str = None,
+            region: str = None,
+            shards: List[ReplicaSet] = None,
+            mongos: List[MongoNode] = None,
+            configsvr: ReplicaSet = None,
     ):
         super().__init__(
             bk_cloud_id,
@@ -400,18 +415,18 @@ class MongoDBNsFilter(object):
             return False
         else:
             if (
-                payload["db_patterns"] is None
-                and payload["ignore_dbs"] is None
-                and payload["table_patterns"] is None
-                and payload["ignore_tables"] is None
+                    payload["db_patterns"] is None
+                    and payload["ignore_dbs"] is None
+                    and payload["table_patterns"] is None
+                    and payload["ignore_tables"] is None
             ):
                 return False
 
             if (
-                payload["db_patterns"] is None
-                or payload["ignore_dbs"] is None
-                or payload["table_patterns"] is None
-                or payload["ignore_tables"] is None
+                    payload["db_patterns"] is None
+                    or payload["ignore_dbs"] is None
+                    or payload["table_patterns"] is None
+                    or payload["ignore_tables"] is None
             ):
                 raise Exception("bad nsFilter {}".format(payload))
             return True

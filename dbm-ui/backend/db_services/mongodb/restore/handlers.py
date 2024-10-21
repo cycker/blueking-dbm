@@ -52,7 +52,7 @@ class MongoDBRestoreHandler(object):
             query_string=query_string,
         )
         if not backup_logs:
-            raise AppBaseException(_("距离回档时间点7天内没有备份日志 {} {}").format(query_string, rollback_time))
+            raise AppBaseException(_("距离回档时间点7天内没有备份日志 query_string: {} from {} to {}").format(query_string, start_time, end_time))
 
         # 获取距离回档时间最近的全备日志
         backup_logs.sort(key=lambda x: x[time_key])
@@ -60,7 +60,7 @@ class MongoDBRestoreHandler(object):
         try:
             latest_backup_log_index = find_nearby_time(time_keys, rollback_time, flag)
         except IndexError:
-            raise AppBaseException(_("无法找到时间点{}附近的全备日志记录 query_string:{} ").format(rollback_time, query_string))
+            raise AppBaseException(_("无法找到时间点{}附近的全备日志记录 query_string:{}").format(rollback_time, query_string))
 
         return backup_logs, latest_backup_log_index
 

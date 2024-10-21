@@ -37,8 +37,8 @@ def get_pkg_info():
     # repo_version 如果REPO_VERSION_FOR_DEV有值，则使用REPO_VERSION_FOR_DEV，否则使用最新版本
     # 正式环境中，REPO_VERSION_FOR_DEV为空
     # 个人测试环境中，REPO_VERSION_FOR_DEV 按需配置
-    repo_version = env.REPO_VERSION_FOR_DEV if env.REPO_VERSION_FOR_DEV else MediumEnum.Latest
-
+    dev_env = str(env.REPO_VERSION_FOR_DEV)
+    repo_version = dev_env if dev_env != "" else MediumEnum.Latest
     actuator_pkg = Package.get_latest_package(
         version=repo_version, pkg_type=MediumEnum.DBActuator, db_type=DBType.MongoDB
     )
@@ -47,7 +47,8 @@ def get_pkg_info():
     toolkit_pkg = Package.get_latest_package(
         version=MediumEnum.Latest, pkg_type="mongo-toolkit", db_type=DBType.MongoDB
     )
-    dbmon_pkg = Package.get_latest_package(version=MediumEnum.Latest, pkg_type="dbmon", db_type=DBType.MongoDB)
+    dbmon_pkg = Package.get_latest_package(version=MediumEnum.Latest
+                                           , pkg_type="dbmon", db_type=DBType.MongoDB)
     return {
         "actuator_pkg": actuator_pkg,
         "dbmon_pkg": dbmon_pkg,
@@ -103,7 +104,7 @@ def add_install_dbmon(flow, flow_data, pipeline, iplist, bk_cloud_id, allow_empt
         bk_host_list.extend(sub_bk_host_list)
         sub_pipelines.append(sub_pl.build_sub_process(_("dbmon-{}").format(ip)))
 
-    # 介质下发，包括actuator+dbmon+dbtools 如果文件没有变化，不会占用带宽
+    # 介质下发，包括actuator+dbmon+dbtools
     pipeline.add_act(
         **SendMedia.act(
             act_name=_("CpFile: actuator+dbmon+dbtools+toolkit"),
@@ -172,6 +173,7 @@ class MongoInstallDBMonFlow(MongoBaseFlow):
         add_install_dbmon(self, self.payload, pipeline, iplist, self.payload["bk_cloud_id"])
         # 运行流程
         pipeline.run_pipeline()
+
 
     @staticmethod
     def get_iplist(infos: list, bk_cloud_id: int) -> list[str]:

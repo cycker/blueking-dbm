@@ -15,6 +15,7 @@ from django.utils.translation import ugettext as _
 from rest_framework import serializers
 
 from backend.configuration.constants import DBType
+from backend.db_meta.enums import InstanceRole
 from backend.flow.consts import DirEnum
 from backend.flow.engine.bamboo.scene.common.builder import Builder, SubBuilder
 from backend.flow.engine.bamboo.scene.common.get_file_list import GetFileList
@@ -23,6 +24,7 @@ from backend.flow.engine.bamboo.scene.mongodb.sub_task.download_subtask import D
 from backend.flow.engine.bamboo.scene.mongodb.sub_task.exec_shell_script import ExecShellScript
 from backend.flow.engine.bamboo.scene.mongodb.sub_task.fetch_backup_record_subtask import FetchBackupRecordSubTask
 from backend.flow.engine.bamboo.scene.mongodb.sub_task.hello_sub import HelloSubTask
+from backend.flow.engine.bamboo.scene.mongodb.sub_task.instance_op import InstanceOpSubTask
 from backend.flow.engine.bamboo.scene.mongodb.sub_task.pitr_restore_sub import PitrRestoreSubTask
 from backend.flow.engine.bamboo.scene.mongodb.sub_task.send_media import SendMedia
 from backend.flow.plugins.components.collections.mongodb.exec_actuator_job2 import ExecJobComponent2
@@ -84,7 +86,7 @@ class MongoPitrRestoreFlow(MongoBaseFlow):
         MongoPitrRestoreFlow 流程
         """
         logger.debug("MongoPitrRestoreFlow start, payload", self.payload)
-        # actuator_workdir 提前创建好的，在部署的时候就创建好了.
+        # actuator_workdir 在部署的时候就创建好的
         actuator_workdir = MongoUtil().get_mongodb_os_conf()["file_path"]
         file_list = GetFileList(db_type=DBType.MongoDB).get_db_actuator_package()
 
@@ -135,7 +137,7 @@ class MongoPitrRestoreFlow(MongoBaseFlow):
             cluster_sb = self.process_cluster(
                 row=row, cluster=cluster, actuator_workdir=actuator_workdir, dest_dir=dest_dir
             )
-            cluster_pipes.append(cluster_sb.build_sub_process(_("cluster {}").format(cluster.name)))
+            cluster_pipes.append(cluster_sb.build_sub_process(_("pitr cluster {}").format(cluster.name)))
 
         # 1. 统一预处理
         # 2. 统一下发文件
@@ -188,16 +190,16 @@ class MongoPitrRestoreFlow(MongoBaseFlow):
 
     def process_cluster(self, row: Dict, cluster: MongoDBCluster, actuator_workdir: str, dest_dir: str) -> SubBuilder:
         """
-        cluster pitr_restore_flow
+        pitr_restore_flow - 兼容 ShardedCluster和ReplicaSet
         """
         cluster_sb = SubBuilder(root_id=self.root_id, data=self.payload)
         shard_pipes = []
 
-        if cluster.is_sharded_cluster():
-            self.check_empty_cluster(
-                row=row, cluster=cluster, actuator_workdir=actuator_workdir, dest_dir=dest_dir, cluster_sb=cluster_sb
-            )
+        self.check_empty_cluster(
+            row=row, cluster=cluster, actuator_workdir=actuator_workdir, dest_dir=dest_dir, cluster_sb=cluster_sb
+        )
 
+        if cluster.is_sharded_cluster():
             self.stop_mongos(
                 row=row, cluster=cluster, actuator_workdir=actuator_workdir, dest_dir=dest_dir, cluster_sb=cluster_sb
             )
@@ -210,9 +212,10 @@ class MongoPitrRestoreFlow(MongoBaseFlow):
         self.stop_not_exec_node(
             row=row, cluster=cluster, actuator_workdir=actuator_workdir, dest_dir=dest_dir, cluster_sb=cluster_sb
         )
-        self.restart_as_standalone(
-            row=row, cluster=cluster, actuator_workdir=actuator_workdir, dest_dir=dest_dir, cluster_sb=cluster_sb
-        )
+
+        # self.restart_as_standalone(
+        #    row=row, cluster=cluster, actuator_workdir=actuator_workdir, dest_dir=dest_dir, cluster_sb=cluster_sb
+        # )
 
         # 为每个Shard执行回档，包括configsvr
         restore_sb = SubBuilder(root_id=self.root_id, data=self.payload)
@@ -229,7 +232,7 @@ class MongoPitrRestoreFlow(MongoBaseFlow):
             shard_pipes.append(shard_sb.build_sub_process(_("{} {}").format(shard.set_type, shard.set_name)))
 
         restore_sb.add_parallel_sub_pipeline(sub_flow_list=shard_pipes)
-        cluster_sb.add_sub_pipeline(sub_flow=restore_sb.build_sub_process("restore_by_shard"))
+        cluster_sb.add_sub_pipeline(sub_flow=restore_sb.build_sub_process("restore_shards"))
         # restore_sb end
 
         if cluster.is_sharded_cluster():
@@ -248,15 +251,16 @@ class MongoPitrRestoreFlow(MongoBaseFlow):
         self, row: Dict, cluster: MongoDBCluster, actuator_workdir: str, dest_dir: str, cluster_sb: SubBuilder
     ):
 
-        exec_node = cluster.get_mongos()[0]
-        HelloSubTask.process_node(
+        exec_node = cluster.get_connect_node()
+        InstanceOpSubTask.process_node(
             root_id=self.root_id,
             ticket_data=self.payload,
             sub_ticket_data=row,
             sub_pipeline=cluster_sb,
             exec_node=exec_node,
             file_path=actuator_workdir,
-            act_name=_("空闲检查"),
+            act_name=_("CheckEmptyData"),
+            op="check_empty_data"
         )
         return
 
@@ -311,11 +315,11 @@ class MongoPitrRestoreFlow(MongoBaseFlow):
                 {
                     "act_name": _("stop_mongos {}:{}".format(mongos.ip, mongos.port)),
                     "act_component_code": ExecJobComponent2.code,
-                    "kwargs": HelloSubTask.make_kwargs(exec_node=mongos, file_path=actuator_workdir),
+                    "kwargs": InstanceOpSubTask.make_kwargs(exec_node=mongos, file_path=actuator_workdir, op="stop"),
                 }
             )
 
-        # 可能会存在mongos列表为空的情况吗？
+        # 可能会存在mongos列表为空的情况
         if len(acts_list) == 0:
             return
 
@@ -325,19 +329,25 @@ class MongoPitrRestoreFlow(MongoBaseFlow):
     def stop_not_exec_node(
         self, row: Dict, cluster: MongoDBCluster, actuator_workdir: str, dest_dir: str, cluster_sb: SubBuilder
     ):
-
         acts_list = []
         sb = SubBuilder(root_id=self.root_id, data=self.payload)
-        for mongos in cluster.get_mongos():
-            acts_list.append(
-                {
-                    "act_name": _("stop {}:{}".format(mongos.ip, mongos.port)),
-                    "act_component_code": ExecJobComponent2.code,
-                    "kwargs": HelloSubTask.make_kwargs(exec_node=mongos, file_path=actuator_workdir),
-                }
-            )
+        shards = cluster.get_shards()
+        if cluster.is_sharded_cluster():
+            shards.append(cluster.get_config())
+        for shard in shards:
+            for m in shard.members:
+                # 每个分片都有一个exec_node，这个exec_node是用于导入数据的
+                if m.equal(row["__exec_node"][shard.set_name]):
+                    continue
 
-        # 可能会存在mongos列表为空的情况吗？
+                acts_list.append(
+                    {
+                        "act_name": _("stop {}:{}".format(m.ip, m.port)),
+                        "act_component_code": ExecJobComponent2.code,
+                        "kwargs": InstanceOpSubTask.make_kwargs(exec_node=m, file_path=actuator_workdir, op="stop"),
+                    }
+                )
+
         if len(acts_list) == 0:
             return
 
