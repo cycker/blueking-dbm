@@ -57,7 +57,7 @@ def get_pkg_info():
     }
 
 
-def add_install_dbmon(flow, flow_data, pipeline, iplist, bk_cloud_id, allow_empty_instance=False):
+def add_install_dbmon(root_id, flow_data, pipeline, iplist, bk_cloud_id, allow_empty_instance=False):
     """
     allow_empty_instance 上架流程中，允许ip没有实例. allow_empty_instance = True
     """
@@ -88,7 +88,7 @@ def add_install_dbmon(flow, flow_data, pipeline, iplist, bk_cloud_id, allow_empt
     for ip in iplist:
         nodes = instances_by_ip[ip]
         sub_pl, sub_bk_host_list = InstallDBMonSubTask.process_server(
-            root_id=flow.root_id,
+            root_id=root_id,
             flow_data=flow_data,
             ip=ip,
             bk_cloud_id=bk_cloud_id,
@@ -170,10 +170,9 @@ class MongoInstallDBMonFlow(MongoBaseFlow):
         # parse iplist
         iplist = self.get_iplist(self.payload["infos"], bk_cloud_id=self.payload["bk_cloud_id"])
 
-        add_install_dbmon(self, self.payload, pipeline, iplist, self.payload["bk_cloud_id"])
+        add_install_dbmon(self.root_id, self.payload, pipeline, iplist, self.payload["bk_cloud_id"])
         # 运行流程
         pipeline.run_pipeline()
-
 
     @staticmethod
     def get_iplist(infos: list, bk_cloud_id: int) -> list[str]:

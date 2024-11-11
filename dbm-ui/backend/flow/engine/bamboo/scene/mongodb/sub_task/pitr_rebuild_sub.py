@@ -21,8 +21,8 @@ from backend.flow.utils.mongodb.mongodb_repo import MongoNode, ReplicaSet
 from backend.flow.utils.mongodb.mongodb_util import MongoUtil
 
 
-# InstanceOpSubTask 对mongod/mongos实例做一些简单的操作. start/stop 等
-class InstanceOpSubTask(BaseSubTask):
+# PitrRebuildSubTask 重新构建集群
+class PitrRebuildSubTask(BaseSubTask):
     """
     payload: 整体的ticket_data
     sub_payload: 这个子任务的ticket_data
@@ -30,7 +30,7 @@ class InstanceOpSubTask(BaseSubTask):
     """
 
     @classmethod
-    def make_kwargs(cls, file_path, exec_node: MongoNode, op: str) -> dict:
+    def make_kwargs(cls, file_path, exec_node: MongoNode, src_shard, dst_shard, src_cluster, dst_cluster) -> dict:
         dba_user, dba_pwd = MongoUtil.get_dba_user_password(exec_node.ip, exec_node.port, exec_node.bk_cloud_id)
         return {
             "set_trans_data_dataclass": CommonContext.__name__,
@@ -38,65 +38,19 @@ class InstanceOpSubTask(BaseSubTask):
             "bk_cloud_id": exec_node.bk_cloud_id,
             "exec_ip": exec_node.ip,
             "db_act_template": {
-                "action": MongoDBActuatorActionEnum.MongoInstanceOp,
+                "action": MongoDBActuatorActionEnum.MongoPitrRebuild,
                 "file_path": file_path,
-                "exec_account": "mysql",
+                "exec_account": "root",
                 "sudo_account": "mysql",
                 "payload": {
                     "ip": exec_node.ip,
                     "port": int(exec_node.port),
                     "adminUsername": dba_user,
                     "adminPassword": dba_pwd,
-                    "op": op,
+                    "src_cluster": src_cluster.__json__(),
+                    "dst_cluster": dst_cluster.__json__(),
+                    "src_shard": src_shard.__json__(),
+                    "dst_shard": dst_shard.__json__(),
                 },
             },
         }
-
-    @classmethod
-    def make_node_kwargs(cls, file_path, ip: str, bk_cloud_id: int, op: str) -> dict:
-        # 按IP为单位执行任务 stop_dbmon/start_dbmon
-        return {
-            "set_trans_data_dataclass": CommonContext.__name__,
-            "get_trans_data_ip_var": None,
-            "bk_cloud_id": bk_cloud_id,
-            "exec_ip": ip,
-            "db_act_template": {
-                "action": MongoDBActuatorActionEnum.MongoInstanceOp,
-                "file_path": file_path,
-                "exec_account": "mysql",
-                "sudo_account": "mysql",
-                "payload": {
-                    "ip": ip,
-                    "op": op,
-                },
-            },
-        }
-
-    @classmethod
-    def process_node(
-            cls,
-            root_id: str,
-            ticket_data: Optional[Dict],
-            sub_ticket_data: Optional[Dict],
-            file_path,
-            exec_node: MongoNode,
-            sub_pipeline: SubBuilder,
-            act_name: str,
-            op: str,
-    ) -> SubBuilder:
-        """
-        cluster can be  a ReplicaSet or  a ShardedCluster
-        """
-
-        # 创建子流程
-        if sub_pipeline is None:
-            sub_pipeline = SubBuilder(root_id=root_id, data=ticket_data)
-
-        kwargs = cls.make_kwargs(file_path, exec_node, op)
-        act = {
-            "act_name": _("{} {}:{}".format(act_name, exec_node.ip, exec_node.port)),
-            "act_component_code": ExecJobComponent2.code,
-            "kwargs": kwargs,
-        }
-        sub_pipeline.add_act(**act)
-        return sub_pipeline
