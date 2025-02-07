@@ -513,19 +513,18 @@ export LD_LIBRARY_PATH=LD_LIBRARY_PATH:%s
 	if task.Err != nil {
 		return
 	}
-	if slaveBinlogRange.FirstSeq < masterBinlogRange.FirstSeq {
-		task.Err = fmt.Errorf("slave(%s) binlog_first_seq:%d < master(%s) binlog_first_seq:%d",
-			task.SlaveAddr(), slaveBinlogRange.FirstSeq, task.MasterAddr(), masterBinlogRange.FirstSeq)
+
+	binlogCheckOk := slaveBinlogRange.EndSeq >= masterBinlogRange.FirstSeq &&
+		slaveBinlogRange.EndSeq <= masterBinlogRange.EndSeq
+	if !binlogCheckOk {
+		task.Err =
+			fmt.Errorf("slave(%s) binlog_range %s not in master(%s) binlog_range:%s, binlog_range check failed",
+				task.SlaveAddr(), slaveBinlogRange.String(), task.MasterAddr(), masterBinlogRange.String())
 		task.runtime.Logger.Error(task.Err.Error())
 		return
 	}
-	if slaveBinlogRange.EndSeq > masterBinlogRange.EndSeq {
-		task.Err = fmt.Errorf("slave(%s) binlog_end_seq:%d > master(%s) binlog_end_seq:%d",
-			task.SlaveAddr(), slaveBinlogRange.EndSeq, task.MasterAddr(), masterBinlogRange.EndSeq)
-		task.runtime.Logger.Error(task.Err.Error())
-		return
-	}
-	msg = fmt.Sprintf("master(%s) binlog_range:%s,slave(%s) binlog_range:%s,is ok",
+
+	msg = fmt.Sprintf("master(%s) binlog_range:%s, slave(%s) binlog_range:%s binlog_range check ok",
 		task.MasterAddr(), masterBinlogRange.String(), task.SlaveAddr(), slaveBinlogRange.String())
 	task.runtime.Logger.Info(msg)
 
