@@ -55,6 +55,7 @@ from backend.db_services.dbbase.serializers import (
     WebConsoleSerializer,
 )
 from backend.db_services.ipchooser.query.resource import ResourceQueryHelper
+from backend.db_services.mongodb.handlers import RemoteMongoDBServiceHandler
 from backend.db_services.mysql.remote_service.handlers import RemoteServiceHandler
 from backend.db_services.redis.toolbox.handlers import ToolboxHandler
 from backend.iam_app.handlers.drf_perm.base import DBManagePermission
@@ -297,6 +298,11 @@ class DBBaseViewSet(viewsets.SystemViewSet):
         # redis
         elif db_type in ClusterType.redis_cluster_types():
             data = ToolboxHandler.webconsole_rpc(**data)
+        # mongodb
+        elif db_type == DBType.MongoDB:
+            # 获取用户id
+            data["user_id"] = request.user.id
+            data = RemoteMongoDBServiceHandler.webconsole_rpc(**data)
 
         # 对外部查询进行数据脱敏
         if getattr(request, "is_external", False) and env.BKDATA_DATA_TOKEN:

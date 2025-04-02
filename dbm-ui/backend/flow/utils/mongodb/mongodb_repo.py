@@ -40,6 +40,9 @@ class MongoNode:
         node = MongoNode(s.ip_port.split(":")[0], s.port, meta_role, s.machine.bk_cloud_id, s.machine_type, domain)
         return node
 
+    def addr(self) -> str:
+        return "{}:{}".format(self.ip, self.port)
+
     def equal(self, other: "MongoNode") -> bool:
         return self.ip == other.ip and self.port == other.port and self.bk_cloud_id == other.bk_cloud_id
 

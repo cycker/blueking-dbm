@@ -9,6 +9,7 @@ from backend.db_meta.models import Cluster
 from backend.flow.consts import ConfigFileEnum, ConfigTypeEnum, MongoDBManagerUser, NameSpaceEnum
 from backend.flow.utils.mongodb import mongodb_password
 from backend.flow.utils.mongodb.mongodb_module_operate import MongoDBCCTopoOperator
+from backend.flow.utils.mongodb.mongodb_repo import MongoRepository
 
 logger = logging.getLogger("flow")
 
@@ -93,3 +94,54 @@ class MongoUtil:
             MongoDBCCTopoOperator(cluster).transfer_instances_to_cluster_module(proxy_objs, is_increment=True)
 
             logger.info("cluster_id:{} update instance labels success".format(cluster_id))
+
+    @staticmethod
+    def get_mongodb_webconsole_args(cluster_id: int, session: str, command: str, timeout: int = 15):
+        """
+        获取mongodb webconsole参数
+        @param cluster_id: 集群id
+        @param session: session，用于标识一个请求，请务必保证带有用户id信息.
+        @param command: 命令，如：show dbs, 首次连接可以为空
+        @param timeout: 超时时间，单位秒
+        """
+        cluster = MongoRepository().fetch_one_cluster(withDomain=False, id=cluster_id)
+        if not cluster:
+            raise Exception("cluster_id:{} not found".format(cluster_id))
+
+        connect_nodes = []
+        if cluster.is_sharded_cluster():
+            connect_nodes = cluster.get_mongos()[:2]  # 取两个mongos就行
+        else:
+            shard = cluster.get_shards()[0]
+            node = shard.get_backup_node() or shard.get_not_backup_nodes()
+            if node:
+                connect_nodes.append(node)
+
+        if len(connect_nodes) == 0:
+            raise Exception("cluster_id:{} can not get connect node".format(cluster_id))
+
+        # ip port
+        node = connect_nodes[0]
+        username = MongoDBManagerUser.MonitorUser.value  # todo 改为webconsole_user
+        password_out = mongodb_password.MongoDBPassword().get_password_from_db(
+            node.ip, node.port, node.bk_cloud_id, username
+        )
+
+        if not password_out or "password" not in password_out:
+            raise Exception(
+                "can not get webconsole_user password for {}({}:{})".format(cluster_id, node.ip, node.port)
+            )
+
+        return {
+            "cluster_id": cluster.cluster_id,
+            "cluster_type": cluster.cluster_type,
+            "cluster_domain": cluster.immute_domain,
+            "version": cluster.major_version.split("-")[-1],
+            "addresses": [m.addr() for m in connect_nodes],  # 取两个mongos就行
+            "set_name": cluster.name,
+            "command": command,
+            "username": username,
+            "password": password_out["password"],
+            "timeout": timeout,
+            "session": "{}:{}".format(cluster_id, session),
+        }
