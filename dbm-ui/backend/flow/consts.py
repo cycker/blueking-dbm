@@ -1472,6 +1472,7 @@ class MongoDBManagerUser(str, StructuredEnum):
     AppDbaUser = EnumField("appdba", _("appdba"))
     MonitorUser = EnumField("monitor", _("monitor"))
     AppMonitorUser = EnumField("appmonitor", _("appmonitor"))
+    WebconsoleUser = EnumField("mgwebconsoleuser", _("mgwebconsoleuser"))
 
 
 class MongoDBUserPrivileges(str, StructuredEnum):
