@@ -13,6 +13,7 @@ from backend.flow.consts import MongoDBClusterRole
 from backend.flow.utils.mongodb import mongodb_password
 from backend.ticket.constants import InstanceType
 
+
 # entities
 # Node -> ReplicaSet -> Cluster[Rs,ShardedCluster]
 # MongoNodeWithLabel
@@ -201,16 +202,16 @@ class ReplicaSetCluster(MongoDBCluster):
     shard: ReplicaSet  # storages
 
     def __init__(
-        self,
-        bk_cloud_id=None,
-        cluster_id=None,
-        name=None,
-        major_version=None,
-        bk_biz_id=None,
-        immute_domain=None,
-        app: str = None,
-        region: str = None,
-        shard: ReplicaSet = None,
+            self,
+            bk_cloud_id=None,
+            cluster_id=None,
+            name=None,
+            major_version=None,
+            bk_biz_id=None,
+            immute_domain=None,
+            app: str = None,
+            region: str = None,
+            shard: ReplicaSet = None,
     ):
         super().__init__(
             bk_cloud_id,
@@ -261,18 +262,18 @@ class ShardedCluster(MongoDBCluster):
     configsvr: ReplicaSet  # configs
 
     def __init__(
-        self,
-        bk_cloud_id=None,
-        cluster_id=None,
-        name=None,
-        major_version=None,
-        bk_biz_id=None,
-        immute_domain=None,
-        app: str = None,
-        region: str = None,
-        shards: List[ReplicaSet] = None,
-        mongos: List[MongoNode] = None,
-        configsvr: ReplicaSet = None,
+            self,
+            bk_cloud_id=None,
+            cluster_id=None,
+            name=None,
+            major_version=None,
+            bk_biz_id=None,
+            immute_domain=None,
+            app: str = None,
+            region: str = None,
+            shards: List[ReplicaSet] = None,
+            mongos: List[MongoNode] = None,
+            configsvr: ReplicaSet = None,
     ):
         super().__init__(
             bk_cloud_id,
@@ -435,14 +436,14 @@ class MongoRepository:
         return rows
 
     @classmethod
-    def fetch_one_cluster(cls, withDomain: bool, **kwargs):
+    def fetch_one_cluster(cls, withDomain: bool, **kwargs) -> MongoDBCluster:
         rows = cls.fetch_many_cluster(withDomain, **kwargs)
         if len(rows) > 0:
             return rows[0]
         return None
 
     @classmethod
-    def fetch_many_cluster_dict(cls, withDomain: bool = False, **kwargs):
+    def fetch_many_cluster_dict(cls, withDomain: bool = False, **kwargs) -> dict[int, MongoDBCluster]:
         clusters = cls.fetch_many_cluster(withDomain, **kwargs)
         clusters_map = {}
         for cluster in clusters:
@@ -526,18 +527,18 @@ class MongoDBNsFilter(object):
             return False
         else:
             if (
-                payload["db_patterns"] is None
-                and payload["ignore_dbs"] is None
-                and payload["table_patterns"] is None
-                and payload["ignore_tables"] is None
+                    payload["db_patterns"] is None
+                    and payload["ignore_dbs"] is None
+                    and payload["table_patterns"] is None
+                    and payload["ignore_tables"] is None
             ):
                 return False
 
             if (
-                payload["db_patterns"] is None
-                or payload["ignore_dbs"] is None
-                or payload["table_patterns"] is None
-                or payload["ignore_tables"] is None
+                    payload["db_patterns"] is None
+                    or payload["ignore_dbs"] is None
+                    or payload["table_patterns"] is None
+                    or payload["ignore_tables"] is None
             ):
                 raise Exception("bad nsFilter {}".format(payload))
             return True
