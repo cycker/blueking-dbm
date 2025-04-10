@@ -108,9 +108,11 @@ class MongoUtil:
         if not cluster:
             raise Exception("cluster_id:{} not found".format(cluster_id))
 
+        # 获得连接的节点, 集群为mongos节点，副本集优先使用backup节点，没有backup节点则为m1节点
         connect_nodes = []
         if cluster.is_sharded_cluster():
             connect_nodes = cluster.get_mongos()[:2]  # 取两个mongos就行
+        else:
             shard = cluster.get_shards()[0]
             node = shard.get_backup_node()
             if node:
@@ -138,6 +140,9 @@ class MongoUtil:
             bk_cloud_id=node.bk_cloud_id,
             username=MongoDBManagerUser.WebconsoleUser.value
         )
+
+        logger.info("cluster_id:{} webconsole user: {}, password: {}, is_created: {}".format(
+            cluster_id, user, pwd, is_created))
 
         return {
             "cluster_id": cluster.cluster_id,
@@ -169,8 +174,8 @@ class MongoUtil:
         if not out or "password" not in out:
             raise Exception("can not get dba_user password for {}:{}".format(cluster_id, bk_cloud_id))
 
-        # 如果密码为空，则表示需要创建密码
-        if out["password"] is None:
+        # 如果密码为空，需要创建密码
+        if out["password"] is None or out["password"] == "":
             new_pwd = mongodb_password.MongoDBPassword().create_user_password()
             if new_pwd["password"] is None:
                 raise Exception("create password fail, error:{}".format(new_pwd["info"]))
