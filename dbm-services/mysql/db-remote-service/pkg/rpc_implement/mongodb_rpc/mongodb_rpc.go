@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,28 +17,10 @@ var (
 	poolOnce sync.Once
 )
 
-func replaceSourceAttr(groups []string, a slog.Attr) slog.Attr {
-	if a.Key == slog.SourceKey {
-		if src, ok := a.Value.Any().(*slog.Source); ok {
-			shortPath := ""
-			fullPath := src.File
-			seps := strings.Split(fullPath, "/")
-			shortPath += seps[len(seps)-1]
-			shortPath += fmt.Sprintf(":%d", src.Line)
-			a.Value = slog.StringValue(shortPath)
-		}
-	}
-	return a
-}
-
 func getPool() (*slog.Logger, *session.Pool) {
 	// Create a new pool if it does not exist
 	poolOnce.Do(func() {
-		opt := &slog.HandlerOptions{
-			AddSource:   true,
-			ReplaceAttr: replaceSourceAttr,
-		}
-		logger = slog.New(slog.NewJSONHandler(os.Stdout, opt))
+		logger = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 		pool = session.NewPool(logger.With("service", "mongo_rpc"))
 		go pool.CheckTimeout(60)
 	})
@@ -53,9 +34,6 @@ type QueryParams struct {
 	ClusterDomain string   `json:"cluster_domain"` // 集群名称
 	Addresses     []string `json:"addresses"`      // ip:port列表
 	SetName       string   `json:"set_name"`       // 如果是集群，指定为空
-	OaUser        string   `json:"oa_user"`        // OA用户名
-	AdminUsername string   `json:"admin_username"` // 管理员用户名
-	AdminPassword string   `json:"admin_password"` // 管理员密码
 	UserName      string   `json:"username"`       // 用户名
 	Password      string   `json:"password"`       // 密码  MongodbRepo().getPassword()
 	Token         string   `json:"session"`        // session token, 一个随机字符串
@@ -72,7 +50,7 @@ func (param *QueryParams) StringWithoutPasswd() string {
 
 // GetUniqSessionToken 打印参数，不打印密码
 func (param *QueryParams) GetUniqSessionToken() string {
-	return fmt.Sprintf("%s_%s_%s", param.ClusterDomain, param.OaUser, param.Token)
+	return fmt.Sprintf("%s_%s_%s", param.ClusterDomain, param.UserName, param.Token)
 }
 
 // MongoRPCEmbed redis 实现
@@ -95,39 +73,36 @@ func parseQueryParams(c *gin.Context) (*QueryParams, error) {
 	if len(param.Addresses[0]) == 0 {
 		return nil, fmt.Errorf("bad param, empty Addresses")
 	}
+
 	if len(param.Token) == 0 {
 		return nil, fmt.Errorf("bad param, empty token")
 	}
+
 	if len(param.UserName) == 0 {
 		return nil, fmt.Errorf("bad param, empty UserName")
 	}
+
 	if len(param.Password) == 0 {
 		return nil, fmt.Errorf("bad param, empty Password")
 	}
-	if len(param.AdminUsername) == 0 {
-		return nil, fmt.Errorf("bad param, empty AdminUsername")
-	}
-	if len(param.AdminPassword) == 0 {
-		return nil, fmt.Errorf("bad param, empty AdminPassword")
-	}
+
 	return param, nil
 }
 
 // DoCommand do command for mongo
 func (r *MongoRPCEmbed) DoCommand(c *gin.Context) {
-	// Get the session pool && logger
-	_, myPool := getPool()
-
 	param, err := parseQueryParams(c)
 	if err != nil {
-		NewRespHandle(c, nil, logger).SendError(err.Error())
+		NewRespHandle(c, nil).SendError(err.Error())
 		return
 	}
 
-	session := myPool.Add(param.Token)
-
 	// Create a new response handler. with the request context and parameters
-	resp := NewRespHandle(c, param, logger)
+	resp := NewRespHandle(c, param)
+
+	// Get the session pool
+	_, myPool := getPool()
+	session := myPool.Add(param.Token)
 
 	// 同一个session只能同时运行一个命令，否则会出现输出混乱
 	if false == session.RunningLock.TryLock() {
@@ -168,12 +143,8 @@ func (r *MongoRPCEmbed) DoCommand(c *gin.Context) {
 	if err != nil {
 		logger.Error("read resp", slog.String("resp", string(v)))
 		session.Stop()
-		// 有内容尽量返回.
-		if len(v) > 0 {
-			resp.SendResp(string(v), 0, "")
-		} else {
-			resp.SendError(err.Error())
-		}
+		resp.SendError(err.Error())
+
 		return
 	} else {
 		resp.SendResp(string(v), 0, "")
