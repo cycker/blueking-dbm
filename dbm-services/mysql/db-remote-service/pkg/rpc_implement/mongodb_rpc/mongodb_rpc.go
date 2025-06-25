@@ -41,7 +41,7 @@ func getPool() (*slog.Logger, *session.Pool) {
 		}
 		logger = slog.New(slog.NewJSONHandler(os.Stdout, opt))
 		pool = session.NewPool(logger.With("service", "mongo_rpc"))
-		go pool.CheckTimeout(60)
+		go pool.CheckTimeout(60 * 5)
 	})
 	return logger, pool
 }

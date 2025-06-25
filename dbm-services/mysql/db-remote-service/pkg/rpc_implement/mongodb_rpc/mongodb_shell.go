@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/pkg/errors"
@@ -20,6 +23,7 @@ import (
 const ClusterTypeReplicaSet = "MongoReplicaSet"
 
 type MongoHost struct {
+	ClusterName   string
 	Host          string
 	Port          int
 	UserName      string
@@ -75,6 +79,7 @@ func NewMongoShellFromParm(p *QueryParams) *MongoShell {
 		StopChan:     make(chan struct{}, 1),
 		MongoVersion: p.Version,
 		MongoHost: MongoHost{
+			ClusterName:   p.ClusterDomain,
 			Host:          p.Addresses[0], // 只取第一个地址
 			UserName:      p.UserName,
 			Password:      p.Password,
@@ -140,29 +145,38 @@ func buildArgs(r *MongoShell) (argv []string, err error) {
 		- secondary = "secondary" >=3节点
 		- secondaryPreferred = "secondaryPreferred" <3节点在primary上执行
 	*/
+
+	// r.MongoHost.ClusterName 是集群名称，例如: "x.x.x.x". re.match 小写字母大写字母-_数字 和 .
+	reClusterName := regexp.MustCompile("^[a-zA-Z0-9-_.]+$")
+	if !reClusterName.MatchString(r.MongoHost.ClusterName) {
+		r.MongoHost.ClusterName = "unknown"
+	}
+
+	hintJs := "print('connect to " + r.MongoHost.ClusterName + " success. db is ' + db.getName())"
+
 	if r.ReadPref == "secondary" || r.ReadPref == "" {
 		if isMongos {
 			// 分片集群，总是先执行一次 setReadPref secondary
-			evalJs = "db.getMongo().setReadPref('secondary');"
+			evalJs = "db.getMongo().setReadPref('secondary');" + hintJs
 		} else {
 			// 副本集，4.2 之前的版本，使用 setSlaveOk
 			if isLowerVersion {
-				evalJs = "db.getMongo().setSecondaryOk(true);"
+				evalJs = "db.getMongo().setSecondaryOk(true);" + hintJs
 			} else {
-				evalJs = "db.getMongo().setReadPref('secondary');"
+				evalJs = "db.getMongo().setReadPref('secondary');" + hintJs
 			}
 		}
 	} else { // secondaryPreferred, < 3节点, 允许在primary上执行
 
 		// 分片集群: setReadPref secondaryPreferred
 		if isMongos {
-			evalJs = "db.getMongo().setReadPref('secondaryPreferred');"
+			evalJs = "db.getMongo().setReadPref('secondaryPreferred');" + hintJs
 		} else {
 			// 副本集: 4.2 之前的版本，使用 setSecondaryOk
 			if isLowerVersion {
-				evalJs = "if (! db.isMaster().ismaster) {db.getMongo().setSecondaryOk(true);}"
+				evalJs = "if (! db.isMaster().ismaster) {db.getMongo().setSecondaryOk(true);} ;" + hintJs
 			} else {
-				evalJs = "if (! db.isMaster().ismaster) {db.getMongo().setReadPref('secondary');}"
+				evalJs = "if (! db.isMaster().ismaster) {db.getMongo().setReadPref('secondary');}; " + hintJs
 			}
 		}
 	}
@@ -242,11 +256,7 @@ func (r *MongoShell) Run(startWg *sync.WaitGroup, logger *slog.Logger) error {
 
 		r.Pid = 0
 		procCancel()
-		// send a byte to close the pipe
-		_, err = outw.Write([]byte("exit\n"))
-		if err != nil {
-			r.logger.Error("outw.Write", slog.Any("err", err))
-		}
+		outr.Close()
 		r.logger.Info("procCancel")
 
 	}(pidChan)
@@ -265,39 +275,86 @@ func (r *MongoShell) Run(startWg *sync.WaitGroup, logger *slog.Logger) error {
 		// read outr -> write BufChan
 		r.logger.Info("pumpStdout: always read from outr, and send to BufChan")
 		defer wg.Done()
-		var buf = make([]byte, 1024)
+		// var buf = make([]byte, 1024)
+
+		dataChan := make(chan []byte)
+		errChan := make(chan error)
+		// read from outr background. 这是为了让 outr 的读取不阻塞
+		bgreadWg := sync.WaitGroup{}
+		bgreadWg.Add(1)
+		go func(wg *sync.WaitGroup) {
+			defer wg.Done()
+			goId := GetGoid()
+			r.logger.Info("outr.read background", slog.Int64("goId", goId))
+			for {
+				buffer := make([]byte, 1024)
+				n, err := outr.Read(buffer) // This call is blocking
+				r.logger.Info("outr.read background", slog.Int64("goId", goId), slog.Int("n", n), slog.Any("err", err))
+				if err != nil && err != io.EOF {
+					return
+				}
+				if n > 0 {
+					r.logger.Info("outr.read background send to dataChan", slog.Int64("goId", goId), slog.Int("n", n))
+					dataChan <- buffer[:n]
+					r.logger.Info("outr.read background send to dataChan done", slog.Int64("goId", goId), slog.Int("n", n))
+				}
+			}
+		}(&bgreadWg)
+
 		for {
 			select {
+			case data := <-dataChan:
+				r.logger.Info("readFromOutr",
+					slog.Int("n", len(data)),
+					slog.String("data", string(data)))
+				r.BufChan <- data
+			case <-r.StopChan:
+				r.logger.Info("pumpStdout stop, because StopChan", slog.String("pid", strconv.Itoa(r.Pid)))
+				err := syscall.Kill(r.Pid, syscall.SIGINT)
+				if err != nil {
+					r.logger.Error("syscall.Kill", slog.Any("err", err))
+				} else {
+					r.logger.Info("syscall.Kill success", slog.String("pid", strconv.Itoa(r.Pid)))
+				}
 			case <-procCtx.Done():
 				r.logger.Info("pumpStdout stop, because procCtx.Done")
 				// r.BufChan <- []byte("exit\n")
 				goto done
+
 			default:
-				// 阻塞读取 outr
-				n, readErr := outr.Read(buf)
-				r.logger.Info("readFromOutr",
-					slog.Int("n", n),
-					slog.String("data", string(buf[:n])),
-					slog.Any("err", readErr),
-				)
-				if err != nil {
-					r.logger.Error("outr.Read", slog.Any("err", readErr))
-					goto done
-				}
-				if n > 0 {
-					// 发送到 BufChan
-					r.logger.Info("sendToBufChan", slog.Int("n", n),
-						slog.String("data", string(buf[:n])))
-					var tmpBuf = make([]byte, n)
-					copy(tmpBuf, buf[:n])
-					r.BufChan <- tmpBuf
-				}
+				// default 留空没问题吧
+				/*
+					// 阻塞读取 outr
+					n, readErr := outr.Read(buf)
+					r.logger.Info("readFromOutr",
+						slog.Int("n", n),
+						slog.String("data", string(buf[:n])),
+						slog.Any("err", readErr),
+					)
+					if err != nil {
+						r.logger.Error("outr.Read", slog.Any("err", readErr))
+						goto done
+					}
+					if n > 0 {
+						// 发送到 BufChan
+						r.logger.Info("sendToBufChan", slog.Int("n", n),
+							slog.String("data", string(buf[:n])))
+						var tmpBuf = make([]byte, n)
+						copy(tmpBuf, buf[:n])
+						r.BufChan <- tmpBuf
+					}
+				*/
 			}
 		}
 	done:
-
-		r.logger.Info("close chan", slog.String("func", "pumpStdout"))
+		r.logger.Info("bgreadWg.Wait start", slog.String("func", "pumpStdout"))
+		bgreadWg.Wait()
+		r.logger.Info("bgreadWg.Wait done", slog.String("func", "pumpStdout"))
+		r.logger.Info("close chan start", slog.String("func", "pumpStdout"))
+		close(dataChan)
+		close(errChan)
 		close(r.BufChan)
+		r.logger.Info("close chan done", slog.String("func", "pumpStdout"))
 	}()
 
 	wg.Wait()
@@ -352,9 +409,9 @@ func (r *MongoShell) ReceiveMsg(timeout int64) (out []byte, err error) {
 }
 
 func (r *MongoShell) Stop() {
-	r.logger.Info("stop")
+	r.logger.Info("stop", slog.String("pid", strconv.Itoa(r.Pid)))
 	r.StopChan <- struct{}{}
-	r.logger.Info("stopped")
+	r.logger.Info("stopped", slog.String("pid", strconv.Itoa(r.Pid)))
 }
 
 func precheckInput(ShellBin string, msg []byte) ([]byte, error) {
@@ -395,5 +452,24 @@ func (r *MongoShell) SendMsg(msg []byte) (n int, err error) {
 
 func isResponseEnd(buf []byte) bool {
 	// return len(buf) > 0 && buf[len(buf)-1] == '>' && bytes.Contains(buf, []byte(" [direct: "))
+	/*
+			{ "_id" : "server_time", "d" : { "openTime" : 1750693149, "dayCounter" : { "count" : 1, "span" : 1, "spanId" : 1486, "offset" : 0 } }, "st" : 1750701216.62 }
+		{ "_id" : "match", "d" : { "isSucc" : true, "roleTbl" : {  }, "unionTbl" : {  }, "isEnsure" : false, "hasStart" : false }, "st" : 1750701216.64 }
+	*/
 	return len(buf) > 0 && buf[len(buf)-1] == '>'
+}
+
+// GetGoid extracts the goroutine ID from the runtime stack.
+func GetGoid() int64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	stk := strings.TrimPrefix(string(buf[:n]), "goroutine ")
+
+	// The goroutine ID is typically the first field after "goroutine ".
+	idField := strings.Fields(stk)[0]
+	id, err := strconv.Atoi(idField)
+	if err != nil {
+		panic(fmt.Errorf("failed to parse goroutine ID: %v", err))
+	}
+	return int64(id)
 }

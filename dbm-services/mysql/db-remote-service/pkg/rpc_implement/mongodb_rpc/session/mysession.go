@@ -134,6 +134,7 @@ func NewPool(logger *slog.Logger) *Pool {
 // CheckTimeout checks if any routine is timeout.
 func (p *Pool) CheckTimeout(timeout int64) {
 	ticker := time.NewTicker(time.Duration(timeout) * time.Second)
+	loopCount := 0
 	for range ticker.C {
 		// p.logger.Info("check timeout start", slog.Int("timeout", int(timeout)))
 		t := time.Now()
@@ -155,12 +156,13 @@ func (p *Pool) CheckTimeout(timeout int64) {
 			}
 		}
 		p.mutex.Unlock()
-		p.logger.Info("check timeout",
-			slog.Int("timeout", int(timeout)),
-			slog.String("elapsed", fmt.Sprintf("%0.6f seconds", time.Since(t).Seconds())),
-			slog.Int("stopped_count", len(stopped)),
+		p.logger.Info("CheckTimeout",
+			slog.Int("loop_count", loopCount),
+			slog.Int("timeout_threshold", int(timeout)),
 			slog.Int("running_count", runningCount),
-			slog.String("stopped", fmt.Sprintf("%+v", stopped)))
+			slog.String("stopped", fmt.Sprintf("%+v", stopped)),
+			slog.String("elapsed", fmt.Sprintf("%d ms", time.Since(t).Milliseconds())))
+		loopCount++
 
 	}
 }
