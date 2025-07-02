@@ -1,3 +1,11 @@
+/*
+ * @Author: cycker cycker@gmail.com
+ * @Date: 2025-06-25 18:07:16
+ * @LastEditors: cycker cycker@gmail.com
+ * @LastEditTime: 2025-06-25 18:07:17
+ * @FilePath: /dbm-services/mongodb/db-tools/dbmon/embedfiles/js/login-js
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 const mi = db.isMaster();
 db = db.getSiblingDB('admin');
 var mongo_type = '';
@@ -27,9 +35,9 @@ db.auth(user, pwd);
 print('mongo_type:' + mongo_type);
 
 if (mongo_type == 'primary') {
-    print("me ", mi.me, "connect ok update test.dbmon_heartbeat");
-    var testdb = db.getSisterDB('test');
-    testdb.dbmon_heartbeat.update({_id: 'hb'}, {"$set": {mi: mi}}, true, true);
+    print("me ", mi.me, "connect ok");
+    // var testdb = db.getSisterDB('test');
+    // testdb.dbmon_heartbeat.update({_id: 'hb'}, {"$set": {mi: mi}}, true, true);
 } else {
     print("me ", mongo_type, "connect ok");
 }

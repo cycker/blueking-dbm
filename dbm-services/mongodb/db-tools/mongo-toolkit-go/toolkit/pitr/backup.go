@@ -46,12 +46,12 @@ type TS struct {
 	I   uint32 `bson:"I" json:"I,omitempty"`
 }
 
-// JsonV1 mongodump’s Extended JSON v1
+// JsonV1 mongodump's Extended JSON v1
 func (ts *TS) JsonV1() string {
 	return fmt.Sprintf(`Timestamp(%d,%d)`, ts.Sec, ts.I)
 }
 
-// JsonV2 mongodump’s Extended JSON v2
+// JsonV2 mongodump's Extended JSON v2
 func (ts *TS) JsonV2() string {
 	return fmt.Sprintf(`{"$timestamp":{"t":%d,"i":%d}}`, ts.Sec, ts.I)
 }
@@ -212,7 +212,8 @@ func DoBackup(connInfo *mymongo.MongoHost, backupType, dir string, zip bool,
 	defer dbConn.Disconnect(context.TODO())
 
 	//upsert一行数据到admin.gcs.backup表中，让备份中oplog至少有一条数据，允许Insert失败.
-	mymongo.InsertBackupHeartbeat(dbConn, *connInfo, backupType, dir)
+	// 没有权限。不写这条.
+	// mymongo.InsertBackupHeartbeat(dbConn, *connInfo, backupType, dir)
 
 	var isMasterOut mymongo.IsMasterResult
 	err = mymongo.RunCommand(dbConn, "admin", "isMaster", 10, &isMasterOut)
@@ -228,11 +229,12 @@ func DoBackup(connInfo *mymongo.MongoHost, backupType, dir string, zip bool,
 		zip = true // 使用zstd压缩
 	}
 
-	if backupType == BackupTypeFull {
+	switch backupType {
+	case BackupTypeFull:
 		return DoBackupFull(connInfo, backupType, dir, zip, archive, lastBackup)
-	} else if backupType == BackupTypeIncr {
+	case BackupTypeIncr:
 		return DoBackupIncr(connInfo, backupType, dir, zip, archive, lastBackup, maxTs)
-	} else {
+	default:
 		return nil, errors.Errorf("bad backupType: %s", backupType)
 	}
 }
