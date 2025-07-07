@@ -1,4 +1,4 @@
-package mongojob
+package checkhealthjob
 
 import (
 	"dbm-services/mongodb/db-tools/dbmon/cmd/basejob"
@@ -44,7 +44,6 @@ func GetCheckHealthHandle(conf *config.DbMonConfig, logger *zap.Logger, jobName 
 // CheckHealthJob 登录检查.
 type CheckHealthJob struct { // NOCC:golint/naming(其他:设计如此)
 	basejob.BaseJob
-	Tasks []*BackupTask `json:"tasks"`
 }
 
 const mongoBin = "/usr/local/mongodb/bin/mongo"
@@ -106,13 +105,13 @@ func (job *CheckHealthJob) runOneServer(svrItem *config.ConfServerItem) {
 	}
 	if using {
 		// 进程存在 发送消息LoginTimeout
-		SendEvent(&job.MyConf.BkMonitorBeat, svrItem, consts.EventMongoLogin, consts.WarnLevelError,
+		config.SendEvent(&job.MyConf.BkMonitorBeat, svrItem, consts.EventMongoLogin, consts.WarnLevelError,
 			fmt.Sprintf("login timeout, taking %0.1f seconds", elapsedTime), logger)
 		return
 	}
 
 	// 如果已屏蔽告警，不会尝试拉起进程
-	if isAlaramShield(svrItem,
+	if config.IsAlaramShield(svrItem,
 		"skip to start mongo because isAlaramShield", job.Logger) {
 		return
 	}
@@ -127,11 +126,11 @@ func (job *CheckHealthJob) runOneServer(svrItem *config.ConfServerItem) {
 		time.Since(startTime).Seconds(), job.Err))
 	if job.Err == nil {
 		// 发送消息LoginSuccess
-		SendEvent(&job.MyConf.BkMonitorBeat, svrItem, consts.EventMongoRestart, consts.WarnLevelWarning,
+		config.SendEvent(&job.MyConf.BkMonitorBeat, svrItem, consts.EventMongoRestart, consts.WarnLevelWarning,
 			"restarted", logger)
 	} else {
 		// 发送消息LoginFailed
-		SendEvent(&job.MyConf.BkMonitorBeat,
+		config.SendEvent(&job.MyConf.BkMonitorBeat,
 			svrItem, consts.EventMongoRestart, consts.WarnLevelError,
 			"restart failed", logger)
 	}

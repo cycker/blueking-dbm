@@ -90,6 +90,7 @@ const KeyMaxTime = "maxtime"
 const KeyMaxSizeG = "maxsizeg"
 const ValueTrue = "true"
 const ValueFalse = "false"
+const KeyNumParallelCollections = "concurrent"
 
 // GetAllClusterConfigRows 所有的集群配置项
 func GetAllClusterConfigRows() []ClusterConfigItem {
@@ -104,6 +105,7 @@ func GetAllClusterConfigRows() []ClusterConfigItem {
 		{Segment: SegmentBackup, Key: KeyArchive, Value: ValueFalse},          // mongodump --archive 方式备份，默认为false
 		{Segment: SegmentBackup, Key: KeyMaxDiskUsage, Value: "50"},           // 磁盘使用率超过此值为磁盘紧急状态, 默认50
 		{Segment: SegmentBackup, Key: KeyMinDiskUsage, Value: "25"},           // 磁盘使用率低于此值为磁盘正常状态, 默认25
+		{Segment: SegmentBackup, Key: KeyNumParallelCollections, Value: "0"},  // 备份时并行备份的集合数，默认0，表示用mongodump的默认值
 		// monitor.loginTimeout: checkService 登录超时时间，单位秒。默认10秒，有效值为[5,360]
 		{Segment: SegmentMonitor, Key: KeyLoginTimeout, Value: "10"},
 		{Segment: SegmentAlarm, Key: KeyShield, Value: ValueFalse},             // 是否屏蔽事件产生

@@ -204,7 +204,7 @@ func GetVersion(conn *mymongo.MongoHost) (*mymongo.MongoVersion, error) {
 // DoBackup 执行备份
 func DoBackup(connInfo *mymongo.MongoHost, backupType, dir string, zip bool,
 	archive bool,
-	lastBackup *BackupFileName, maxTs *TS) (*BackupFileName, error) {
+	lastBackup *BackupFileName, maxTs *TS, numParallelCollections int) (*BackupFileName, error) {
 	dbConn, err := connInfo.Connect()
 	if err != nil {
 		return nil, errors.Wrap(err, "conn")
@@ -231,7 +231,7 @@ func DoBackup(connInfo *mymongo.MongoHost, backupType, dir string, zip bool,
 
 	switch backupType {
 	case BackupTypeFull:
-		return DoBackupFull(connInfo, backupType, dir, zip, archive, lastBackup)
+		return DoBackupFull(connInfo, backupType, dir, zip, archive, lastBackup, numParallelCollections)
 	case BackupTypeIncr:
 		return DoBackupIncr(connInfo, backupType, dir, zip, archive, lastBackup, maxTs)
 	default:
@@ -241,9 +241,9 @@ func DoBackup(connInfo *mymongo.MongoHost, backupType, dir string, zip bool,
 
 // DoBackupFull 执行全量备份
 func DoBackupFull(connInfo *mymongo.MongoHost, backupType, dir string, zip bool, archive bool,
-	lastBackup *BackupFileName) (*BackupFileName, error) {
+	lastBackup *BackupFileName, numParallelCollections int) (*BackupFileName, error) {
 	archiveFile := "dump.archive"
-	dumpCmd, err := buildDumpFullCmd(connInfo, zip, archive, archiveFile, lastBackup, nil)
+	dumpCmd, err := buildDumpFullCmd(connInfo, zip, archive, archiveFile, lastBackup, numParallelCollections)
 	if err != nil {
 		return nil, err
 	}
@@ -634,13 +634,13 @@ func buildDumpIncrCmd(connInfo *mymongo.MongoHost, zip bool, archive bool, lastB
 }
 
 func buildDumpFullCmd(connInfo *mymongo.MongoHost, zip bool, archive bool, archiveFile string,
-	lastBackup *BackupFileName, maxTs *TS) (*mycmd.CmdBuilder, error) {
+	lastBackup *BackupFileName, numParallelCollections int) (*mycmd.CmdBuilder, error) {
 	// ./mongotools/mongodump.2.4  mongodump.3.0  mongodump.3.2  mongodump.3.4
 	// mongodump.3.6  mongodump.4.0  mongodump.4.2
 
 	// unused lastBackup
 	_ = lastBackup
-	_ = maxTs
+	_ = numParallelCollections
 	_ = archiveFile
 
 	version, err := GetVersion(connInfo)
@@ -678,6 +678,10 @@ func buildDumpFullCmd(connInfo *mymongo.MongoHost, zip bool, archive bool, archi
 		if zip {
 			dumpCmd.Append("--gzip")
 		}
+	}
+
+	if numParallelCollections > 0 {
+		dumpCmd.Append("-j", strconv.Itoa(numParallelCollections))
 	}
 
 	return dumpCmd, nil

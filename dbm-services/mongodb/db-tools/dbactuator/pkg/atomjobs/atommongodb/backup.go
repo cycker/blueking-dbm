@@ -109,14 +109,14 @@ func getBackupPath() (string, error) {
 }
 
 // getMongoDumpOutPath return path Like /data/dbbak/mongodump-$unixtime
-func getMongoDumpOutPath() (string, string, error) {
+func getMongoDumpOutPath(ip string, port int) (string, string, error) {
 	backupDir, err := getBackupPath()
 	if err != nil {
 		return "", "", err
 	}
 
 	for i := 0; i < 10; i++ {
-		tmpName := fmt.Sprintf("mongodump-%d", time.Now().Unix())
+		tmpName := fmt.Sprintf("mongodump-%s-%d-%d", ip, port, time.Now().Unix())
 		tmpDir := path.Join(backupDir, tmpName)
 		if util.FileExists(tmpDir) {
 			time.Sleep(time.Second)
@@ -135,7 +135,7 @@ func getMongoDumpOutPath() (string, string, error) {
 
 // doLogicalBackup backup by mongodump
 func (s *backupJob) doLogicalBackup() error {
-	tmpPath, tmpDir, err := getMongoDumpOutPath()
+	tmpPath, tmpDir, err := getMongoDumpOutPath(s.ConfParams.IP, s.ConfParams.Port)
 	if err != nil {
 		return errors.Wrap(err, "getMongoDumpOutPath")
 	}
@@ -151,7 +151,6 @@ func (s *backupJob) doLogicalBackup() error {
 			partialArgs.ColList, partialArgs.IgnoreColList)
 
 		cmdLineList, cmdLine, err, _ := helper.DumpPartial(tmpPath, "dump.log", filter)
-
 		if err != nil {
 			if errors.Is(err, logical.ErrorNoMatchDb) {
 				s.runtime.Logger.Warn("NoMatchDb")

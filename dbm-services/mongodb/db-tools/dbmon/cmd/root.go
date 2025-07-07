@@ -3,10 +3,11 @@ package cmd
 
 import (
 	"context"
+	"dbm-services/mongodb/db-tools/dbmon/cmd/backupjob"
+	"dbm-services/mongodb/db-tools/dbmon/cmd/checkhealthjob"
 	"dbm-services/mongodb/db-tools/dbmon/cmd/dbmonheartbeat"
 	"dbm-services/mongodb/db-tools/dbmon/cmd/dstatjob"
 	"dbm-services/mongodb/db-tools/dbmon/cmd/logparserjob"
-	"dbm-services/mongodb/db-tools/dbmon/cmd/mongojob"
 	"dbm-services/mongodb/db-tools/dbmon/config"
 	"dbm-services/mongodb/db-tools/dbmon/mylog"
 	"dbm-services/mongodb/db-tools/dbmon/pkg/consts"
@@ -146,7 +147,7 @@ func main(cmd *cobra.Command, args []string) {
 	}
 
 	// 准备备份目录
-	if dirs, err := new(mongojob.BackupJob).PrepareDir(); err != nil {
+	if dirs, err := new(backupjob.BackupJob).PrepareDir(); err != nil {
 		logger.Fatal(fmt.Sprintf("PrepareDir err: %q", err.Error()))
 	} else {
 		logger.Info(fmt.Sprintf("PrepareDir success, dir:%s", dirs))
@@ -157,8 +158,8 @@ func main(cmd *cobra.Command, args []string) {
 	c := cron.New(cron.WithLogger(mylog.AdapterLog))
 
 	// 备份任务可强制退出. todo: 如何杀掉已发起的备份任务
-	job1 := mongojob.NewBackupThread(dbmonConf, mylog.Logger, "backup")
-	job2 := mongojob.GetCheckHealthHandle(dbmonConf, mylog.Logger, "checkhealth")
+	job1 := backupjob.NewBackupThread(dbmonConf, mylog.Logger, "backup")
+	job2 := checkhealthjob.GetCheckHealthHandle(dbmonConf, mylog.Logger, "checkhealth")
 	job3 := dbmonheartbeat.GetJob(dbmonConf, mylog.Logger, "heartbeat")
 	// logparserjob 任务
 	job4 := logparserjob.GetJob(dbmonConf, mylog.Logger, "logparser", osCtx, &rootWg)

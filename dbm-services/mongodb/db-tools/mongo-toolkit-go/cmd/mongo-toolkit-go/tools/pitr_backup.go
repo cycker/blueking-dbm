@@ -41,6 +41,7 @@ var minDiskUsage int
 var reportFile string
 var labelsStr string
 var archive bool
+var numParallelCollections int
 
 func init() {
 	backupCmd.Flags().StringVar(&host, "host", "127.0.0.1", "host")
@@ -66,6 +67,7 @@ func init() {
 	backupCmd.Flags().StringVar(&labelsStr, "labels", "", "bkdbm server labels, json, allow empty")
 	backupCmd.Flags().BoolVar(&archive, "archive", false,
 		"use mongodump --archive. if zip is true, use zstd instead of gzip")
+	backupCmd.Flags().IntVar(&numParallelCollections, "numParallelCollections", 0, "num parallel collections")
 	rootCmd.AddCommand(backupCmd)
 }
 
@@ -111,22 +113,23 @@ func backupMain() {
 	}
 
 	var backupOpt = pitr.BackupOption{
-		MongoHost:          connObj,
-		BackupType:         backupType,
-		Dir:                dir,
-		Zip:                gzip,
-		FullFreq:           fullFreq,
-		IncrFreq:           incrFreq,
-		FullTag:            fullTag,
-		IncrTag:            incrTag,
-		SendToBackupSystem: sendToBackupSystem,
-		RemoveOldFileFirst: removeOldFileFirst,
-		MaxDiskUsage:       maxDiskUsage,
-		MinDiskUsage:       minDiskUsage,
-		ReportFile:         reportFile,
-		BkDbmLabel:         dbmLabel,
-		DryRun:             dryRun,
-		Archive:            archive,
+		MongoHost:              connObj,
+		BackupType:             backupType,
+		Dir:                    dir,
+		Zip:                    gzip,
+		FullFreq:               fullFreq,
+		IncrFreq:               incrFreq,
+		FullTag:                fullTag,
+		IncrTag:                incrTag,
+		SendToBackupSystem:     sendToBackupSystem,
+		RemoveOldFileFirst:     removeOldFileFirst,
+		MaxDiskUsage:           maxDiskUsage,
+		MinDiskUsage:           minDiskUsage,
+		ReportFile:             reportFile,
+		BkDbmLabel:             dbmLabel,
+		DryRun:                 dryRun,
+		Archive:                archive,
+		NumParallelCollections: numParallelCollections,
 	}
 	pitr.DoJob(&backupOpt)
 
