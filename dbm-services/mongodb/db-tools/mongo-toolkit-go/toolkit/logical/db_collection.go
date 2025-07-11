@@ -1,3 +1,11 @@
+/*
+ * @Author: cycker cycker@gmail.com
+ * @Date: 2025-07-07 15:33:09
+ * @LastEditors: cycker cycker@gmail.com
+ * @LastEditTime: 2025-07-08 10:23:52
+ * @FilePath: /dbm-services/mongodb/db-tools/mongo-toolkit-go/toolkit/logical/db_collection.go
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 package logical
 
 import (
@@ -27,30 +35,26 @@ func GetDbCollectionWithFilter(ip, port, user, pass, authDb string, filter *NsFi
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	dbList, err := client.ListDatabaseNames(ctx, bson.M{})
 	if err != nil {
+		cancel()
 		return nil, errors.Wrap(err, "ListDatabaseNames")
 	}
 	cancel()
 
-	matchDbList, _ := filter.FilterDb(dbList)
-	// 如果按照输入的db过滤后，没有db了，就报错
-	if len(matchDbList) == 0 {
-		return nil, ErrorNoMatchDb
-	}
-
 	var dbColList []DbCollection
-
-	for _, dbName := range matchDbList {
+	for _, dbName := range dbList {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		colList, err := client.Database(dbName).ListCollectionNames(ctx, bson.M{})
 		if err != nil {
+			cancel()
 			return nil, errors.Wrap(err, "ListCollectionNames")
 		}
 		cancel()
-
-		var dbCol DbCollection
-		dbCol.Db = dbName
-		dbCol.Col, dbCol.notMachCol = filter.FilterTb(colList)
-		dbColList = append(dbColList, dbCol)
+		matched, notMatched := filter.FilterTbV2(dbName, colList)
+		dbColList = append(dbColList, DbCollection{
+			Db:         dbName,
+			Col:        matched,
+			notMachCol: notMatched,
+		})
 	}
 	return dbColList, nil
 }
@@ -65,6 +69,7 @@ func GetDbCollection(ip, port, user, pass, authDb string, excludeSysDb bool) ([]
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	dbList, err := client.ListDatabaseNames(ctx, bson.M{})
 	if err != nil {
+		cancel()
 		return nil, errors.Wrap(err, "ListDatabaseNames")
 	}
 	cancel()
@@ -76,6 +81,7 @@ func GetDbCollection(ip, port, user, pass, authDb string, excludeSysDb bool) ([]
 		ctx2, cancel2 := context.WithTimeout(context.Background(), 120*time.Second)
 		colList, err := client.Database(dbName).ListCollectionNames(ctx2, bson.M{})
 		if err != nil {
+			cancel2()
 			return nil, errors.Wrap(err, "ListCollectionNames")
 		}
 		cancel2()

@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/pkg/errors"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -87,6 +86,10 @@ func (s *removeNsJob) Run() error {
 func connectPrimary(host *mymongo.MongoHost) (client *mongo.Client, err error) {
 	// drop Index
 	client, err = host.Connect()
+	if err != nil {
+		return nil, err
+	}
+
 	isMasterOut, err := mymongo.IsMaster(client, 10)
 	if err != nil {
 		err = errors.Wrap(err, "IsMaster")
@@ -101,6 +104,7 @@ func connectPrimary(host *mymongo.MongoHost) (client *mongo.Client, err error) {
 		err = errors.Errorf("bad primary:%s", isMasterOut.Primary)
 		return
 	}
+	client.Disconnect(context.TODO())
 	masterInst := mymongo.NewMongoHost(fs[0], fs[1], "admin", host.User, host.Pass, "", fs[0])
 	return masterInst.Connect()
 }
@@ -120,7 +124,7 @@ func (s *removeNsJob) dropCollection() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "connectPrimary")
 	}
-	defer primaryConn.Disconnect(nil)
+	defer primaryConn.Disconnect(context.TODO())
 	for _, ns := range s.tmp.NsList {
 		for _, col := range ns.Col {
 			err = primaryConn.Database(ns.Db).Collection(col).Drop(context.Background())
@@ -141,6 +145,11 @@ func (s *removeNsJob) backupIndex() (err error) {
 	}
 
 	client, err := s.MongoInst.Connect()
+	if err != nil {
+		return errors.Wrap(err, "Connect")
+	}
+	defer client.Disconnect(context.TODO())
+
 	s.tmp.NsIndex = make(map[string][]*mongo.IndexSpecification)
 	for _, ns := range s.tmp.NsList {
 		for _, col := range ns.Col {
@@ -160,7 +169,7 @@ func (s *removeNsJob) backupIndex() (err error) {
 				indexView2, context.TODO(), options.ListIndexes().SetMaxTime(30*time.Second))
 		}
 	}
-	s.runtime.Logger.Info(fmt.Sprintf("backup index done"))
+	s.runtime.Logger.Info("backup index done")
 	v, _ := json.Marshal(s.tmp.NsIndex)
 	s.runtime.Logger.Info(fmt.Sprintf("backupIndex: %s", v))
 	return nil
@@ -177,7 +186,7 @@ func (s *removeNsJob) restoreIndex() (err error) {
 	if err != nil {
 		return errors.Wrap(err, "connectPrimary")
 	}
-	defer primaryConn.Disconnect(nil)
+	defer primaryConn.Disconnect(context.Background())
 
 	for _, ns := range s.tmp.NsList {
 		for _, col := range ns.Col {
@@ -255,15 +264,6 @@ type unmarshalIndexSpecification struct {
 	DefaultLanguage    string   `bson:"default_language"`
 	LanguageOverride   string   `bson:"language_override"`
 	TextVersion        *int32   `bson:"textIndexVersion,omitempty"`
-}
-
-// unmarshalBSON implements the bson.Unmarshaler interface.
-func unmarshalBSON(data []byte) error {
-	var temp unmarshalIndexSpecification
-	if err := bson.Unmarshal(data, &temp); err != nil {
-		return err
-	}
-	return nil
 }
 
 // ListSpecifications executes a List command and returns a slice of returned IndexSpecifications
@@ -366,17 +366,6 @@ func (s *removeNsJob) Init(runtime *jobruntime.JobGenericRuntime) error {
 		return errors.Wrap(err, fmt.Sprintf("Connect to %s:%d failed", s.ConfParams.IP, s.ConfParams.Port))
 	}
 	s.runtime.Logger.Info(fmt.Sprintf("Connect to %s:%d success", s.ConfParams.IP, s.ConfParams.Port))
-
-	return nil
-}
-
-// checkParams 校验参数
-func (s *removeNsJob) checkParams() error {
-	// 校验配置参数
-	validate := validator.New()
-	if err := validate.Struct(s.ConfParams); err != nil {
-		return fmt.Errorf("validate parameters of deleteUser fail, error:%s", err)
-	}
 
 	return nil
 }

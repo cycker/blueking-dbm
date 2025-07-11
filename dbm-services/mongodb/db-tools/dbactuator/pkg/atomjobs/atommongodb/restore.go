@@ -237,11 +237,7 @@ func (s *restoreJob) removeNsByFilter(dbColList []logical.DbCollection, dstDir s
 		if row.Db == "admin" {
 			continue
 		}
-		if !filter.IsDbMatched(row.Db) {
-			os.RemoveAll(fmt.Sprintf("%s/%s", dstDir, row.Db))
-			continue
-		}
-		matchList, notMatchList := filter.FilterTb(row.Col)
+		matchList, notMatchList := filter.FilterTbV2(row.Db, row.Col)
 		if len(matchList) == 0 {
 			os.RemoveAll(fmt.Sprintf("%s/%s", dstDir, row.Db))
 			continue

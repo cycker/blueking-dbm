@@ -124,11 +124,6 @@ func NewMongoDumpHelper(host *mymongo.MongoHost, dumpBin, user, pass, authDb str
 // 1. 备份一个表 : -c tableName
 // 2. 备份多个表 :  --excludeCollection tableName1 --excludeCollection tableName2 ...
 
-// LogicalDumpPartial  逻辑备份 指定库表
-// 有3种情况:
-// 1. 备份一个表 : -c tableName
-// 2. 备份多个表 :  --excludeCollection tableName1 --excludeCollection tableName2 ...
-
 // DumpPartial  逻辑备份 指定库表
 func (m *MongoDumpHelper) DumpPartial(outDir string, logFileName string, filter *NsFilter) (
 	cmdLineList []string, cmdLine string, err error, nCol int) {
