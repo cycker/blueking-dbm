@@ -47,6 +47,16 @@ func (c *CmdBuilder) Append(v ...interface{}) *CmdBuilder {
 	return c
 }
 
+// AppendIf	do Append if cond is true. to make cmd line more readable
+func (c *CmdBuilder) AppendIf(cond bool, v ...interface{}) *CmdBuilder {
+	if cond {
+		for _, vv := range v {
+			c.appendOne(vv)
+		}
+	}
+	return c
+}
+
 // AppendPassword Append password arg
 func (c *CmdBuilder) AppendPassword(v string) *CmdBuilder {
 	return c.appendOne(Password(v))

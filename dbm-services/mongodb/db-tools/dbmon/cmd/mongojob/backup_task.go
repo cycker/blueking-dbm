@@ -43,33 +43,25 @@ func NewBackupTask() *BackupTask {
 // Do 执行任务
 // 组装命令行，调用MongoToolKit执行备份任务，返回错误
 // 调用MongoToolKit执行备份任务的原因是，MongoToolKit已经实现了备份的逻辑，不需要重复实现
-// 也可实现备份时可重启dbmon，但目前没有实现
 func (task *BackupTask) Do(option *BackupTaskOption, logger *zap.Logger) error {
 	backupType := "AUTO"
 	reportFile, _, _ := consts.GetMongoBackupReportPath()
 
-	cb := mycmd.New(consts.GetDbTool(consts.MongoToolKit), "backup", "--type", backupType,
+	cb := mycmd.New(consts.GetDbTool(consts.MongoToolKit), "backup",
+		"--type", backupType,
 		"--dir", option.BackupDir,
-		"--host", option.Host, "--port", option.Port,
-		"--user", option.User, "--pass", mycmd.Password(option.Password)).
-		Append("--fullFreq", strconv.Itoa(option.FullFreq), "--incrFreq", strconv.Itoa(option.IncrFreq)).
-		Append("--report-file", reportFile, "--labels", option.Labels)
-
-	if option.SendToBs {
-		cb.Append("--send-to-bs")
-	}
-
-	if option.RemoveOldFileFirst {
-		cb.Append("--remove-old-file-first")
-	}
-
-	if option.Zip {
-		cb.Append("--zip")
-	}
-
-	if option.Archive {
-		cb.Append("--archive")
-	}
+		"--host", option.Host,
+		"--port", option.Port,
+		"--user", option.User,
+		"--pass", mycmd.Password(option.Password),
+		"--fullFreq", strconv.Itoa(option.FullFreq),
+		"--incrFreq", strconv.Itoa(option.IncrFreq),
+		"--report-file", reportFile,
+		"--labels", option.Labels).
+		AppendIf(option.SendToBs, "--send-to-bs").
+		AppendIf(option.RemoveOldFileFirst, "--remove-old-file-first").
+		AppendIf(option.Zip, "--zip").
+		AppendIf(option.Archive, "--archive")
 
 	// dbmon的日志不上传Es，可以打印密码.
 	cmdLine := cb.GetCmdLine2(false)
