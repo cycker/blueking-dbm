@@ -103,6 +103,9 @@ func (s *instOpJob) Run() error {
 	case "flush_router_config":
 		// 刷新router的配置
 		return op.DoFlushRouterConfig()
+	case "service_status_check":
+		// 检查服务状态
+		return s.doServiceStatusCheck()
 	}
 
 	return errors.New("unknown op " + s.ConfParams.Op)
@@ -110,8 +113,8 @@ func (s *instOpJob) Run() error {
 
 func (s *instOpJob) doStartDbmon() error {
 	startSh := "/home/mysql/bk-dbmon/start.sh"
-	_, _, _, err := mycmd.New(startSh).Run(time.Second * 60)
-	if err != nil {
+	exitCode, _, _, err := mycmd.New(startSh).Run(time.Second * 60)
+	if err != nil || exitCode != 0 {
 		return errors.Wrap(err, "start dbmon failed")
 	}
 	return nil
@@ -119,8 +122,8 @@ func (s *instOpJob) doStartDbmon() error {
 
 func (s *instOpJob) doStopDbmon() error {
 	stopSh := "/home/mysql/bk-dbmon/stop.sh"
-	_, _, _, err := mycmd.New(stopSh).Run(time.Second * 600)
-	if err != nil {
+	exitCode, _, _, err := mycmd.New(stopSh).Run(time.Second * 600)
+	if err != nil || exitCode != 0 {
 		return errors.Wrap(err, "stop dbmon failed")
 	}
 	return nil
@@ -209,7 +212,6 @@ func (s *instOpJob) doRemoveOtherMember() error {
 	} else {
 		return errors.New("remove other member failed")
 	}
-	return nil
 }
 
 func (s *instOpJob) doAddMember() error {
@@ -241,5 +243,56 @@ func (s *instOpJob) Init(runtime *jobruntime.JobGenericRuntime) error {
 		s.runtime.Logger.Error(tmpErr.Error())
 		return tmpErr
 	}
+	return nil
+}
+
+func (s *instOpJob) doServiceStatusCheck() error {
+	op := s.GetInstanceOp()
+
+	// 检查进程是否在运行
+	_, running, err := op.IsRunning()
+	if err != nil {
+		return errors.Wrap(err, "IsRunning")
+	}
+	if !running {
+		return errors.New("service is not running")
+	}
+
+	// 获取 isMaster 信息以判断实例类型和状态
+	isMasterResult, err := op.IsMaster()
+	if err != nil {
+		return errors.Wrap(err, "IsMaster")
+	}
+
+	// 判断是 mongod 还是 mongos
+	// 如果 SetName 不为空，说明是副本集成员(mongod)
+	if isMasterResult.SetName != "" {
+		// mongod 副本集成员，检查状态是否是 primary 或 secondary
+		if !isMasterResult.IsMaster && !isMasterResult.Secondary {
+			return errors.Errorf("mongod instance is neither primary nor secondary, setName: %s, me: %s",
+				isMasterResult.SetName, isMasterResult.Me)
+		}
+
+		if isMasterResult.IsMaster {
+			s.runtime.Logger.Info("mongod instance status check ok: primary, setName: %s, me: %s",
+				isMasterResult.SetName, isMasterResult.Me)
+		} else if isMasterResult.Secondary {
+			s.runtime.Logger.Info("mongod instance status check ok: secondary, setName: %s, me: %s",
+				isMasterResult.SetName, isMasterResult.Me)
+		} else {
+			return errors.Errorf("mongod instance status check failed, setName: %s, me: %s",
+				isMasterResult.SetName, isMasterResult.Me)
+		}
+	} else {
+		// mongos 或 单机 mongod，只要 ismaster 返回成功就表示服务正常
+		// mongos 通常 isMaster 为 true
+		s.runtime.Logger.Info("mongos/standalone instance status check ok, me: %s, ismaster: %v",
+			isMasterResult.Me, isMasterResult.IsMaster)
+		if !isMasterResult.IsMaster {
+			return errors.Errorf("mongos/standalone instance status check failed, me: %s, ismaster: %v",
+				isMasterResult.Me, isMasterResult.IsMaster)
+		}
+	}
+
 	return nil
 }
