@@ -64,7 +64,7 @@ type KeyStatParams struct {
 	ExecIp          string       `json:"exec_ip" validate:"required"`
 	CheckInterval   int          `json:"check_interval" validate:"required,min=1"` // 检查间隔时间，单位：秒
 	ClusterId       int64        `json:"cluster_id" validate:"required"`
-	ClusterShardNum int64        `json:"cluster_shard_num" validate:"required"`
+	ClusterShardNum int64        `json:"cluster_shard_num"`
 }
 
 // HotkeyAnalysis  结构体
