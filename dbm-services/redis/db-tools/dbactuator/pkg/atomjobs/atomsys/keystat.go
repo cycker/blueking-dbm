@@ -516,7 +516,11 @@ func (job *KeyStat) uploadReport(workDir string) (err error) {
 		return errors.New("rankReportFile is empty")
 	}
 
-	reportRows, rankRows, err := keystat_report.LoadReport(reportFile, rankReportFile)
+	reportRows, err := keystat_report.LoadReport(reportFile)
+	if err != nil {
+		return err
+	}
+	rankRows, err := keystat_report.LoadRankReport(rankReportFile)
 	if err != nil {
 		return err
 	}
