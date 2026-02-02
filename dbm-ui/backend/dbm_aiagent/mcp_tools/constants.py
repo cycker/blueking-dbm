@@ -33,6 +33,12 @@ class DBMMcpTools(StrStructuredEnum):
     REDIS_QUERY_ALARM = EnumField("redis-query-alarm", "redis-query-alarm")
     REDIS_BILL = EnumField("redis-bill", "redis-bill")
     REDIS_JOB = EnumField("redis-job", "redis-job")
+    MONGODB_QUERY_META = EnumField("mongodb-query-meta", "mongodb-query-meta")
+    MONGODB_QUERY_STATUS = EnumField("mongodb-query-status", "mongodb-query-status")
+    MONGODB_QUERY_LOG = EnumField("mongodb-query-log", "mongodb-query-log")
+    MONGODB_QUERY_ALARM = EnumField("mongodb-query-alarm", "mongodb-query-alarm")
+    MONGODB_BILL = EnumField("mongodb-bill", "mongodb-bill")
+    MONGODB_JOB = EnumField("mongodb-job", "mongodb-job")
 
 
 class DBMMCPTags(StrStructuredEnum):

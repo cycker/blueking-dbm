@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 TencentBlueKing is pleased to support the open source community by making 蓝鲸智云-DB管理系统(BlueKing-BK-DBM) available.
 Copyright (C) 2017-2023 THL A29 Limited, a Tencent company. All rights reserved.
@@ -8,13 +7,20 @@ Unless required by applicable law or agreed to in writing, software distributed 
 an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 """
-from django.urls import include, path
+from django.utils.translation import gettext_lazy as _
+from rest_framework import serializers
 
-# common mcp tools
-urlpatterns = [
-    path("common/", include("backend.dbm_aiagent.mcp_tools.common.urls")),
-    path("mysql/", include("backend.dbm_aiagent.mcp_tools.mysql.urls")),
-    path("sqlserver/", include("backend.dbm_aiagent.mcp_tools.sqlserver.urls")),
-    path("redis/", include("backend.dbm_aiagent.mcp_tools.redis.urls")),
-    path("mongodb/", include("backend.dbm_aiagent.mcp_tools.mongodb.urls")),
-]
+
+class MongoClusterInputSerializer(serializers.Serializer):
+    """MongoDB集群输入序列化器"""
+
+    immute_domain = serializers.CharField(help_text=_("集群域名"))
+
+
+class MongoClusterTopologyTextSerializer(serializers.Serializer):
+    """MongoDB集群拓扑文本格式响应"""
+
+    cluster_id = serializers.IntegerField(help_text=_("集群ID"))
+    cluster_name = serializers.CharField(help_text=_("集群名称"))
+    topology_text = serializers.CharField(help_text=_("拓扑文本（格式化显示）"))
+    summary = serializers.DictField(help_text=_("汇总信息"))
