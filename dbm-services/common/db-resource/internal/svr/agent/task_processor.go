@@ -91,7 +91,7 @@ func ProcessAnalysisTaskFromJSON(billID string, applyParamsJSON json.RawMessage)
 	}
 
 	// 3. 调用智能体分析
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), LLMAnalysisTimeout)
 	defer cancel()
 
 	analyzer := GetAnalyzer()
@@ -154,6 +154,7 @@ func ProcessAnalysisTaskFromJSON(billID string, applyParamsJSON json.RawMessage)
 		Updates(map[string]interface{}{
 			"status":          model.AnalysisStatusCompleted,
 			"analysis_result": resultJSON,
+			"markdown_text":   result.MarkdownText,
 			"duration":        duration,
 		}).Error; err != nil {
 		logger.Error("Failed to update analysis result for bill %s: %v", billID, err)

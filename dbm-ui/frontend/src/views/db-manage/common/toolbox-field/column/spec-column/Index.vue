@@ -15,7 +15,7 @@
   <EditableColumn
     v-test="{ type: 'column', value: 'spec' }"
     :field="field"
-    :label="label ? label : readonly ? t('当前规格') : t('目标规格')"
+    :label="renderLabel"
     :min-width="minWidth"
     :readonly="readonly"
     :required="required"
@@ -25,17 +25,17 @@
       v-if="tooltips"
       #head>
       <div v-bk-tooltips="tooltips">
-        <span class="spec-title">{{ t(label) }}</span>
+        <span class="spec-title">{{ renderLabel }}</span>
       </div>
     </template>
     <template
-      v-if="selectable"
+      v-if="selectable && !onlyShowCurrentSpec"
       #headAppend>
       <BatchEditColumn
         v-model="showBatchEdit"
         :data-list="batchEditSpecList"
         :placeholder="t('请选择')"
-        :title="t(label)"
+        :title="renderLabel"
         type="select"
         @change="handleBatchEditChange">
         <span
@@ -139,7 +139,7 @@
   /**
    * 绑定当前选择的规格 ID
    */
-  const modelValue = defineModel<number>({
+  const modelValue = defineModel<number | string>({
     required: true,
   });
 
@@ -162,6 +162,7 @@
   const specList = ref<ServiceReturnType<typeof getResourceSpecList>['results']>([]);
   const showBatchEdit = ref(false);
 
+  const renderLabel = computed(() => (props.label ? props.label : !props.selectable ? t('当前规格') : t('目标规格')));
   const readonly = computed(() => !props.selectable);
   const batchEditSpecList = computed(() =>
     specList.value.map((item) => ({
@@ -227,24 +228,8 @@
   );
 
   // 初始化
-  watch(
-    () => [modelValue.value, props.currentSpecIdList],
-    () => {
-      if (props.selectable && modelValue.value && typeof modelValue.value !== 'string') {
-        const isExist = sortedSpecList.value.some((item) => item.spec_id === modelValue.value);
-        if (!isExist) {
-          modelValue.value = 0;
-          return;
-        }
-      }
-      const currentSpecIdList = _.uniq(props.currentSpecIdList);
-      const isSame = currentSpecIdList.length === 1;
-      const [currentSpecId] = currentSpecIdList;
-      // 所有主机规格相同时则默认填充此规格。各主机规格不同时默认值留空。
-      if (!modelValue.value && isSame && currentSpecId && !props.disabledCurrentSpec) {
-        modelValue.value = currentSpecId;
-      }
-
+  watch(sortedSpecList, () => {
+    nextTick(() => {
       // 如果 modelValue 被设置为 字符串 时，若在规格列表中匹配到对应规格则选中（用于批量录入）
       if (modelValue.value && typeof modelValue.value === 'string') {
         const matchedSpecId = sortedSpecList.value.filter(
@@ -252,13 +237,30 @@
         )?.[0]?.spec_id;
         if (matchedSpecId) {
           modelValue.value = matchedSpecId;
+        } else {
+          modelValue.value = '';
         }
+        return;
       }
-    },
-    {
-      immediate: true,
-    },
-  );
+
+      // 如果 modelValue 被设置为 数字 时，若在规格列表中匹配到对应规格则选中,否则重置
+      if (props.selectable && modelValue.value && typeof modelValue.value === 'number') {
+        const isExist = sortedSpecList.value.some((item) => item.spec_id === modelValue.value);
+        if (!isExist) {
+          modelValue.value = '';
+        }
+        return;
+      }
+
+      const currentSpecIdList = _.uniq(props.currentSpecIdList);
+      const isSame = currentSpecIdList.length === 1;
+      const [currentSpecId] = currentSpecIdList;
+      // 所有主机规格相同时则默认填充此规格。各主机规格不同时默认值留空。
+      if (modelValue.value === 0 && isSame && currentSpecId && !props.disabledCurrentSpec) {
+        modelValue.value = currentSpecId;
+      }
+    });
+  });
 
   const handleBatchEditShow = () => {
     showBatchEdit.value = true;

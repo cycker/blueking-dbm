@@ -75,6 +75,7 @@ CORS_ALLOW_HEADERS = (
 
 ALLOWED_HOSTS = ["*"]
 
+# 安装的APPS
 INSTALLED_APPS += (
     "django_celery_beat",
     "whitenoise.runserver_nostatic",
@@ -105,8 +106,6 @@ INSTALLED_APPS += (
     # apigw
     "apigw_manager.apigw",
     "apigw_manager.drf",
-    # aidev
-    "aidev_bkplugin",
     # DB重连
     "backend.django_dbconn_retry",
     # 动态 raw-id
@@ -147,9 +146,16 @@ INSTALLED_APPS += (
     "backend.db_services.dbresource",
     "backend.dbm_init",
     "backend.db_services.mongodb.password",
-    "backend.dbm_aiagent",
 )
 
+if env.ENABLE_DBM_AI:
+    INSTALLED_APPS += (
+        # aidev
+        "aidev_bkplugin",
+        "backend.dbm_aiagent",
+    )
+
+# 中间件
 MIDDLEWARE = (
     # 跨域中间件
     "corsheaders.middleware.CorsMiddleware",
@@ -161,8 +167,6 @@ MIDDLEWARE = (
     "apigw_manager.apigw.authentication.ApiGatewayJWTGenericMiddleware",
     "apigw_manager.apigw.authentication.ApiGatewayJWTAppMiddleware",
     "apigw_manager.apigw.authentication.ApiGatewayJWTUserMiddleware",
-    # 分析页面、接口和SQL调用耗时调试工具
-    "debug_toolbar.middleware.DebugToolbarMiddleware",
     # request instance provider
     "blueapps.middleware.request_provider.RequestProvider",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -188,6 +192,10 @@ MIDDLEWARE = (
     "backend.bk_web.middleware.RequestProviderMiddleware",
 )
 
+if DEBUG and env.DEBUG_TOOL_BAR:
+    MIDDLEWARE += ("debug_toolbar.middleware.DebugToolbarMiddleware",)
+
+# 认证后端
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
     "backend.bk_web.middleware.JWTUserModelBackend",
@@ -715,6 +723,19 @@ BK_APIGW_STAGE_MCP_SERVERS = [
         "tools": [],
     },
     {
+        "name": "mysql-config",
+        "description": """query or update mysql tools's config, like backup,mysql_monitor,checksum""",
+        # 主动授权 app_code
+        "target_app_codes": [APP_CODE],
+        "labels": ["mysql-config"],
+        # 是否启用：1-启用，0-停止
+        "status": 1,
+        # 是否公开
+        "is_public": False,
+        # 自动发现并填充该 MCP 服务器对应的工具
+        "tools": [],
+    },
+    {
         "name": "dbmeta-query",
         "description": """query dbm meta info""",
         # 主动授权 app_code
@@ -872,6 +893,15 @@ BK_APIGW_STAGE_MCP_SERVERS = [
         "tools": [],
     },
     {
+        "name": "redis-metrics",
+        "description": """Redis Metrics tools""",
+        "target_app_codes": [APP_CODE],
+        "labels": ["redis-metrics"],
+        "status": 1,
+        "is_public": False,
+        "tools": [],
+    },
+    {
         "name": "alarm-query",
         "description": """收集DBM集群的告警记录""",
         # 主动授权 app_code
@@ -894,6 +924,32 @@ BK_APIGW_STAGE_MCP_SERVERS = [
         # 主动授权 app_code
         "target_app_codes": [APP_CODE],
         "labels": ["dbmeta-update"],
+        # 是否启用：1-启用，0-停止
+        "status": 1,
+        # 是否公开
+        "is_public": False,
+        # 自动发现并填充该 MCP 服务器对应的工具
+        "tools": [],
+    },
+    {
+        "name": "kafka-query-meta",
+        "description": """Kafka cluster meta information query services""",
+        # 主动授权 app_code
+        "target_app_codes": [APP_CODE],
+        "labels": ["kafka-query-meta"],
+        # 是否启用：1-启用，0-停止
+        "status": 1,
+        # 是否公开
+        "is_public": False,
+        # 自动发现并填充该 MCP 服务器对应的工具
+        "tools": [],
+    },
+    {
+        "name": "kafka-bill",
+        "description": """Kafka bill creation services""",
+        # 主动授权 app_code
+        "target_app_codes": [APP_CODE],
+        "labels": ["kafka-bill"],
         # 是否启用：1-启用，0-停止
         "status": 1,
         # 是否公开

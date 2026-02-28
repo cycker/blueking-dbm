@@ -16,6 +16,7 @@ from rest_framework.response import Response
 
 from backend.db_meta.enums import ClusterType, MachineType
 from backend.db_meta.models import Cluster, Machine
+from backend.dbm_aiagent.mcp_tools.common.auth_parser.base import auth_parse_clusters
 from backend.dbm_aiagent.mcp_tools.constants import DBMMCPTags, DBMMcpTools
 from backend.dbm_aiagent.mcp_tools.decorators import mcp_tools_api_decorator
 from backend.dbm_aiagent.mcp_tools.exceptions import (
@@ -61,6 +62,7 @@ from backend.dbm_aiagent.mcp_tools.mysql.serializers.show_variables import (
 from backend.dbm_aiagent.mcp_tools.mysql.serializers.usefully_choices import MySQLProcessListInstanceGroupType
 from backend.dbm_aiagent.mcp_tools.views import McpToolsViewSet
 from backend.iam_app.handlers.drf_perm.base import DBManagePermission
+from backend.iam_app.handlers.drf_perm.mcp import McpClusterManagePermission
 
 logger = logging.getLogger("root")
 
@@ -72,8 +74,10 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
         description=str(_("获取 tendbsingle, tendbha, tendbcluster 集群的表结构")),
         request_slz=ShowCreateTableInputSerializer,
         response_slz=ShowCreateTableOutputSerializer,
+        permission_classes=[McpClusterManagePermission],
+        mcp_auth_parser=auth_parse_clusters,
         tags=[DBMMCPTags.READ],
-        mcp=[DBMMcpTools.MYSQL_QUERY],
+        mcp=[DBMMcpTools.MYSQL_QUERY, DBMMcpTools.MYSQL_SLOWLOG],
         name_prefix="mysql_query",
     )
     def show_create_table(self, request, *args, **kwargs):
@@ -96,8 +100,10 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
         description=str(_("查询 SQL 执行计划")),
         request_slz=ExplainSQLInputSerializer,
         response_slz=ExplainSQLOutputSerializer,
+        permission_classes=[McpClusterManagePermission],
+        mcp_auth_parser=auth_parse_clusters,
         tags=[DBMMCPTags.READ],
-        mcp=[DBMMcpTools.MYSQL_QUERY],
+        mcp=[DBMMcpTools.MYSQL_QUERY, DBMMcpTools.MYSQL_SLOWLOG],
         name_prefix="mysql_query",
     )
     def explain_sql(self, request, *args, **kwargs):
@@ -129,7 +135,16 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
 
         cluster_obj = Cluster.objects.get(immute_domain=cluster_domain)
 
-        return Response(mysql_cluster_topo(cluster_obj=cluster_obj))
+        return Response(
+            {
+                "bk_cloud_id": cluster_obj.bk_cloud_id,
+                "bk_biz_id": cluster_obj.bk_biz_id,
+                "region": cluster_obj.region,
+                "tolerance_level": cluster_obj.disaster_tolerance_level,
+                "time_zone": cluster_obj.time_zone,
+                **mysql_cluster_topo(cluster_obj=cluster_obj),
+            }
+        )
 
     @mcp_tools_api_decorator(
         description=str(
@@ -169,7 +184,7 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
         return Response(summary)
 
     @mcp_tools_api_decorator(
-        description=str(_("""查询 MySQL 常见运行时参数""")),
+        description=str(_("""查询 MySQL 常见运行时参数, 执行 show global variables""")),
         request_slz=ShowMySQLVariablesInputSerializer,
         response_slz=ShowMySQLVariablesOutputSerializer,
         tags=[DBMMCPTags.READ],
@@ -186,7 +201,7 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
         return Response(
             {
                 **show_mysql_variables(
-                    bk_cloud_id=bk_cloud_id,
+                    bk_cloud_id=machine_obj.bk_cloud_id,
                     address=address,
                     machine_type=machine_obj.machine_type,
                     variable_hints=variable_hints,
@@ -195,7 +210,7 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
         )
 
     @mcp_tools_api_decorator(
-        description=str(_("""查询实例常见运行时状态""")),
+        description=str(_("""查询实例常见运行时状态, 执行 show global status""")),
         request_slz=ShowInstanceStatusesInputSerializer,
         response_slz=ShowInstanceStatuesOutputSerializer,
         tags=[DBMMCPTags.READ],
@@ -212,7 +227,7 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
         return Response(
             {
                 **show_instance_status(
-                    bk_cloud_id=bk_cloud_id,
+                    bk_cloud_id=machine_obj.bk_cloud_id,
                     address=address,
                     machine_type=machine_obj.machine_type,
                     status_hints=status_hints,
@@ -221,7 +236,7 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
         )
 
     @mcp_tools_api_decorator(
-        description=str(_("""查询实例同步状态状态""")),
+        description=str(_("""查询实例主从同步状态, 执行 show slave status""")),
         request_slz=ShowInstanceSlaveStatusInputSerializer,
         response_slz=ShowInstanceStatuesOutputSerializer,
         tags=[DBMMCPTags.READ],
@@ -232,11 +247,11 @@ class MySQLQueryMcpToolsViewSet(McpToolsViewSet):
         bk_cloud_id = self.get_param("bk_cloud_id")
         address = self.get_param("address")
 
-        _ = _validate_and_get_machine(bk_cloud_id, address)
+        machine_obj = _validate_and_get_machine(bk_cloud_id, address)
 
         return Response(
             {
-                "runtime_status": mysql_show_slave_status(bk_cloud_id=bk_cloud_id, address=address),
+                "runtime_status": mysql_show_slave_status(bk_cloud_id=machine_obj.bk_cloud_id, address=address),
             }
         )
 

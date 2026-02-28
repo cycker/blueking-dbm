@@ -20,6 +20,7 @@ export const mongoToolboxChildrenRoutes: RouteRecordRaw[] = [
   createRouteItem(TicketTypes.MONGODB_SCALE_UPDOWN, t('集群容量变更')),
   createRouteItem(TicketTypes.MONGODB_ADD_MONGOS, t('扩容接入层')),
   createRouteItem(TicketTypes.MONGODB_REDUCE_MONGOS, t('缩容接入层')),
+  createRouteItem(TicketTypes.MONGODB_INSTANCE_FIX_STATUS, t('节点状态修复')),
   createRouteItem(TicketTypes.MONGODB_REPLICASET_CUTOFF, t('整机替换')),
   createRouteItem(TicketTypes.MONGODB_SHARD_CUTOFF, t('整机替换')),
   createRouteItem(TicketTypes.MONGODB_PITR_RESTORE, t('定点构造')),
@@ -28,6 +29,7 @@ export const mongoToolboxChildrenRoutes: RouteRecordRaw[] = [
   createRouteItem(TicketTypes.MONGODB_REMOVE_NS, t('清档')),
   createRouteItem(TicketTypes.MONGODB_REPLICASET_MIGRATE, t('迁移')),
   createRouteItem(TicketTypes.MONGODB_SHARD_MIGRATE, t('迁移')),
+  createRouteItem(TicketTypes.MONGODB_DATA_EXPORT, t('数据导出')),
   {
     path: 'structure-instance/:page?',
     name: 'MongoStructureInstance',
@@ -66,14 +68,7 @@ const mongodbToolboxRouters: RouteRecordRaw[] = [
       name: TicketTypes.MONGODB_EXEC_SCRIPT_APPLY,
     },
     component: () => import('@views/db-manage/mongodb/toolbox/Index.vue'),
-    children: [
-      ...mongoToolboxChildrenRoutes,
-      {
-        path: 'toolbox-result/:ticketType?/:ticketId?',
-        name: 'MongodbToolboxResult',
-        component: () => import('@views/db-manage/common/toolbox-result/Index.vue'),
-      },
-    ],
+    children: [...mongoToolboxChildrenRoutes],
   },
 ];
 

@@ -40,12 +40,12 @@ type AgentConfig struct {
 func NewAgentExecutor(provider LLMProvider, tools *ResourceTools, cfg AgentConfig) *AgentExecutor {
 	maxIterations := cfg.MaxIterations
 	if maxIterations <= 0 {
-		maxIterations = 5
+		maxIterations = 15
 	}
 
 	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
-		timeout = 30 * time.Second
+		timeout = LLMAnalysisTimeout
 	}
 
 	return &AgentExecutor{
@@ -78,6 +78,11 @@ type ToolCallLog struct {
 // Execute 执行 Agent
 func (e *AgentExecutor) Execute(ctx context.Context, systemPrompt, userMessage string) (*ExecutionResult, error) {
 	startTime := time.Now()
+
+	// #region agent log - 假设 B: 记录 Agent Executor 超时配置
+	logger.Info("[DEBUG-B] Agent Execute started - timeout: %.2fs, maxIterations: %d",
+		e.timeout.Seconds(), e.maxIterations)
+	// #endregion
 
 	// 设置超时
 	ctx, cancel := context.WithTimeout(ctx, e.timeout)
@@ -112,6 +117,13 @@ func (e *AgentExecutor) Execute(ctx context.Context, systemPrompt, userMessage s
 		logger.Info("[Agent] Iteration %d/%d, messages count: %d",
 			iteration, e.maxIterations, len(messages))
 
+		// #region agent log - 假设 B/E: 记录每次迭代的剩余超时时间
+		deadline, _ := ctx.Deadline()
+		remainingTimeout := time.Until(deadline)
+		logger.Info("[DEBUG-B/E] Before Chat call - iteration: %d, remainingTimeout: %.2fs, elapsedTotal: %.2fs",
+			iteration, remainingTimeout.Seconds(), time.Since(startTime).Seconds())
+		// #endregion
+
 		// 调用 LLM
 		chatReq := &ChatRequest{
 			Messages: messages,
@@ -120,6 +132,10 @@ func (e *AgentExecutor) Execute(ctx context.Context, systemPrompt, userMessage s
 
 		resp, err := e.provider.Chat(ctx, chatReq)
 		if err != nil {
+			// #region agent log - 假设 E: 记录失败时的详细信息
+			logger.Error("[DEBUG-E] Chat failed - iteration: %d, error: %v, elapsedTotal: %.2fs",
+				iteration, err, time.Since(startTime).Seconds())
+			// #endregion
 			result.Error = fmt.Sprintf("LLM chat failed: %v", err)
 			result.Duration = time.Since(startTime)
 			return result, err
@@ -539,7 +555,11 @@ storage_device 是一个 JSON 对象，支持多块磁盘存储：
 
 ## 输出要求
 
-最终输出必须是 JSON 格式，包含以下字段：
+你需要提供两种格式的输出：
+
+### 1. JSON 格式（用于程序处理）
+
+首先输出 JSON 格式的分析结果，格式如下：
 {
   "summary": "一句话概括主要原因",
   "reasons": [
@@ -564,6 +584,60 @@ storage_device 是一个 JSON 对象，支持多块磁盘存储：
     "confidence": "high/medium/low"
   }
 }
+
+### 2. Markdown 格式（用于人类阅读）
+
+在 JSON 之后，使用 ---MARKDOWN--- 分隔符，然后提供 Markdown 格式的分析报告。
+Markdown 格式示例：
+
+标题：# 资源申请分析报告
+
+分析概要部分：
+## 📋 分析概要
+一段话概括主要问题，说明资源不足的根本原因
+
+失败原因部分：
+## ❌ 失败原因
+按影响程度分组：
+### 🔴 高影响因素
+- **原因类别**: 详细描述失败原因
+  - 数据: 相关数据，如具体数量、分布情况等
+
+### 🟡 中影响因素
+- **原因类别**: 详细描述
+
+### ⚪ 低影响因素
+- **原因类别**: 详细描述
+
+改进建议部分：
+## 💡 改进建议
+按优先级排序：
+### 🔴 优先级 1（必须立即处理）
+1. **建议类型**: 具体的建议内容
+   - 📊 预计可用: X 台
+   - ✅ 验证状态: 已验证 / ⚠️ 未验证
+   - 📝 详细说明: 详细的操作指导
+
+### 🟡 优先级 2（建议尽快处理）
+2. **建议类型**: 具体的建议内容
+   - 📊 预计可用: X 台
+   - ✅ 验证状态: 已验证
+
+验证信息部分：
+## ✅ 验证信息
+- 所有建议已验证: 是/否
+- 置信度: 高/中/低
+
+最后加上耗时：
+---
+*🕐 分析耗时: {duration}*
+
+**重要说明**：
+- JSON 和 Markdown 必须都提供
+- Markdown 要使用 emoji 增强可读性
+- 按影响程度对失败原因分组
+- 按优先级对建议排序
+- 包含具体的数量、分布等关键数据
 
 ## 重要提示
 
@@ -722,7 +796,11 @@ func GetSystemPromptWithKnownReasons(knownReasons []KnownFailReason, affinityDis
 
 ## 输出要求
 
-基于已知的失败原因，直接输出 JSON 格式的建议：
+你需要提供两种格式的输出：
+
+### 1. JSON 格式（用于程序处理）
+
+首先输出 JSON 格式的分析结果，格式如下：
 {
   "summary": "一句话概括主要原因",
   "reasons": [
@@ -748,9 +826,44 @@ func GetSystemPromptWithKnownReasons(knownReasons []KnownFailReason, affinityDis
   }
 }
 
+### 2. Markdown 格式（用于人类阅读）
+
+在 JSON 之后，使用 ---MARKDOWN--- 分隔符，然后提供 Markdown 格式的分析报告。
+Markdown 格式示例：
+
+标题：# 资源申请分析报告
+
+分析概要部分：
+## 📋 分析概要
+基于已知原因的概括说明
+
+失败原因部分：
+## ❌ 失败原因
+按影响程度分组：
+### 🔴 高影响因素
+- **原因类别**: 详细描述
+
+改进建议部分：
+## 💡 改进建议
+按优先级排序：
+### 🔴 优先级 1（必须立即处理）
+1. **建议类型**: 具体建议
+   - 📊 预计可用: X 台
+   - ✅ 验证状态: 已验证
+
+验证信息部分：
+## ✅ 验证信息
+- 所有建议已验证: 是/否
+- 置信度: 高/中/低
+
+最后加上耗时：
+---
+*🕐 分析耗时: {duration}*
+
 ## 重要提示
 
 - 原因已经确定，直接基于已知信息给出建议
+- JSON 和 Markdown 必须都提供
 - **绝对不能建议降低数量、放宽亲和性或更换地域**
 - 当是亲和性问题时，建议补充对应的机架/交换机上的资源
 - 使用中文回复

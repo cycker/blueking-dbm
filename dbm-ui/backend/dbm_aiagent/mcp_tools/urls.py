@@ -17,4 +17,5 @@ urlpatterns = [
     path("sqlserver/", include("backend.dbm_aiagent.mcp_tools.sqlserver.urls")),
     path("redis/", include("backend.dbm_aiagent.mcp_tools.redis.urls")),
     path("mongodb/", include("backend.dbm_aiagent.mcp_tools.mongodb.urls")),
+    path("kafka/", include("backend.dbm_aiagent.mcp_tools.kafka.urls")),
 ]

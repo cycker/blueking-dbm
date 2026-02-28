@@ -73,11 +73,11 @@ func main() {
 	srv := &http.Server{
 		Addr:              config.AppConfig.ListenAddress,
 		Handler:           app,
-		ReadHeaderTimeout: 2 * time.Second,  // 防止Slowloris攻击
-		ReadTimeout:       30 * time.Second, // 完整请求读取超时
-		WriteTimeout:      60 * time.Second, // 响应写入超时
-		IdleTimeout:       60 * time.Second, // 空闲连接超时
-		MaxHeaderBytes:    1 << 20,          // 1MB头部大小限制
+		ReadHeaderTimeout: 2 * time.Second,            // 防止Slowloris攻击
+		ReadTimeout:       30 * time.Second,           // 完整请求读取超时
+		WriteTimeout:      agent.LLMHTTPClientTimeout, // 响应写入超时，以支持 LLM 长时间分析
+		IdleTimeout:       60 * time.Second,           // 空闲连接超时
+		MaxHeaderBytes:    1 << 20,                    // 1MB头部大小限制
 	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -85,10 +85,10 @@ func main() {
 		}
 	}()
 
-	lcron := cron.New()
-	registerCrontab(lcron)
-	lcron.Start()
-	defer lcron.Stop()
+	localCron := cron.New()
+	registerCrontab(localCron)
+	localCron.Start()
+	defer localCron.Stop()
 
 	// Wait for interrupt signal to gracefully shutdown the server with
 	// a timeout of 5 seconds.
@@ -190,7 +190,7 @@ func registerCrontab(localcron *cron.Cron) {
 			Spec: "20 */12 * * *",
 			Func: func() {
 				logger.Info("Start sync machine hardware information .....")
-				if err := task.AsyncResourceHardInfo(); err != nil {
+				if err := task.AsyncBkCmdbAttributes(); err != nil {
 					logger.Error("async machine hardware information failed:%s", err.Error())
 				}
 			},

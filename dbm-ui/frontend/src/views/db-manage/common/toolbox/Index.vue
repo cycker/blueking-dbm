@@ -37,7 +37,7 @@
           ref="contentWrapper"
           class="toolbox-page-content">
           <ScrollFaker style="padding: 0 24px">
-            <RouterView :key="route.path" />
+            <RouterView :key="renderKey" />
           </ScrollFaker>
         </div>
         <Teleport
@@ -63,6 +63,8 @@
 
   import { useEventBus } from '@hooks';
 
+  import { random } from '@utils';
+
   import ToolNavigation, { type Props as ToolNavigationProps } from './components/tool-navigation/Index.vue';
 
   interface Props {
@@ -70,9 +72,10 @@
     menuList: ToolNavigationProps['data'];
   }
 
-  defineProps<Props>();
+  const props = defineProps<Props>();
 
   const route = useRoute();
+  const router = useRouter();
   const eventBus = useEventBus();
 
   const contentWrapperRef = useTemplateRef('contentWrapper');
@@ -80,11 +83,16 @@
   const dbType = ref('');
   const teleportTarget = shallowRef<HTMLDivElement>();
   const submitErrorMessage = ref<string>('');
+  const renderKey = ref(random());
 
   watch(
     route,
     () => {
-      toolName.value = route.meta.navName as string;
+      const activeItem = _.find(
+        props.menuList.flatMap((item) => item.children),
+        (item) => Boolean(item.bind?.includes(route.name as string) || route.name === item.id),
+      );
+      toolName.value = activeItem ? activeItem.name : '';
       dbType.value = _.upperFirst(route.meta.dbType as string);
       submitErrorMessage.value = '';
       nextTick(() => {
@@ -97,6 +105,16 @@
       immediate: true,
     },
   );
+
+  eventBus.on('db-toolbox-success', () => {
+    router.replace({
+      path: route.path,
+      query: {},
+    });
+    setTimeout(() => {
+      renderKey.value = random();
+    }, 60);
+  });
 
   eventBus.on('db-toolbox-error', (errorMessage: any) => {
     submitErrorMessage.value = errorMessage;

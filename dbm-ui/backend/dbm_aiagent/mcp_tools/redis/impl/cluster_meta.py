@@ -8,7 +8,7 @@ an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express o
 specific language governing permissions and limitations under the License.
 """
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from django.db.models import F
 
@@ -58,15 +58,10 @@ def redis_list_clusters(bk_biz_id: int) -> List:
 
     return [
         {
-            "cluster_id": c.id,
-            "bk_cloud_id": c.bk_cloud_id,
-            "cluster_type": c.cluster_type,
             "immute_domain": c.immute_domain,
+            "cluster_type": c.cluster_type,
             "alias": c.alias,
             "region": c.region,
-            "proxy_count": len(c.proxyinstance_set.all()),
-            "master_count": len(c.storageinstance_set.filter(instance_role=InstanceRole.REDIS_MASTER.value)),
-            "redis_version": c.major_version,
         }
         for c in clusters
     ]
@@ -104,35 +99,72 @@ def get_machine_stats(all_machine_ids) -> Dict:
     return machine_distribution
 
 
-def cluster_overview(immute_domain: str) -> Dict:
-    cluster_obj = Cluster.objects.prefetch_related("tags").get(immute_domain=immute_domain)
+def cluster_basic_overview(immute_domain: str) -> Dict:
     # 基本信息
-    stats = {
-        "bk_cloud_id": cluster_obj.bk_cloud_id,
-        "bk_biz_id": cluster_obj.bk_biz_id,
-        "cluster_id": cluster_obj.id,
-        "immute_domain": cluster_obj.immute_domain,
-        "alias": cluster_obj.alias,
-        "cluster_type": cluster_obj.cluster_type,
-        "major_version": cluster_obj.major_version,
-        "region": cluster_obj.region,
-        "disaster_tolerance_level": cluster_obj.disaster_tolerance_level,
-        "tags": ["{}:{}".format(tag.key, tag.value) for tag in cluster_obj.tags.all()],
-        "cluster_entries": [
-            {"entry_type": ce.cluster_entry_type, "entry_addr": ce.entry}
-            for ce in ClusterEntry.objects.filter(cluster=cluster_obj)
-        ],
-    }
-    # 查询存储实例
-    storage_instances = (
-        StorageInstance.objects.filter(cluster=cluster_obj)
+    try:
+        cluster_obj = Cluster.objects.prefetch_related("tags").get(immute_domain=immute_domain)
+        return {
+            "bk_biz_id": cluster_obj.bk_biz_id,
+            "cluster_id": cluster_obj.id,
+            "immute_domain": cluster_obj.immute_domain,
+            "alias": cluster_obj.alias,
+            "cluster_type": cluster_obj.cluster_type,
+            "major_version": cluster_obj.major_version,
+            "region": cluster_obj.region,
+            "disaster_tolerance_level": cluster_obj.disaster_tolerance_level,
+            "tags": ["{}:{}".format(tag.key, tag.value) for tag in cluster_obj.tags.all()],
+            "cluster_entries": [
+                {"entry_type": ce.cluster_entry_type, "entry_addr": ce.entry}
+                for ce in ClusterEntry.objects.filter(cluster=cluster_obj)
+            ],
+        }
+    except Cluster.DoesNotExist:
+        return {"error": "集群不存在"}
+
+
+def cluster_proxy_overview(immute_domain: str) -> Dict:
+    cluster_obj = Cluster.objects.get(immute_domain=immute_domain)
+    # 查询代理实例
+    proxy_instances = (
+        ProxyInstance.objects.filter(cluster=cluster_obj)
         .select_related("machine", "machine__bk_city")
         .prefetch_related("bind_entry")
     )
 
-    # 查询代理实例
-    proxy_instances = (
-        ProxyInstance.objects.filter(cluster=cluster_obj)
+    # 统计代理实例信息
+    proxy_stats = {
+        "by_status": defaultdict(int),
+        "by_machine_type": defaultdict(int),
+        "versions": set(),
+        "machines": set(),
+    }
+
+    for instance in proxy_instances:
+        proxy_stats["by_status"][instance.status] += 1
+        proxy_stats["by_machine_type"][instance.machine_type] += 1
+        if instance.version:
+            proxy_stats["versions"].add(instance.version)
+        proxy_stats["machines"].add(instance.machine.bk_host_id)
+
+    proxy_machines = get_machine_stats(proxy_stats["machines"])
+    stats = {
+        "node_count": proxy_instances.count(),
+        "by_status": dict(sorted(proxy_stats["by_status"].items())),
+        "versions": sorted(list(proxy_stats["versions"])),
+        "machine_count": len(proxy_stats["machines"]),
+        "by_os": dict(sorted(proxy_machines["by_os"].items())),
+        "by_sub_zone": dict(sorted(proxy_machines["by_sub_zone"].items())),
+        "by_device_class": dict(sorted(proxy_machines["by_device_class"].items())),
+    }
+    return stats
+
+
+def cluster_redis_overview(immute_domain: str, role: str) -> Dict:
+    cluster_obj = Cluster.objects.get(immute_domain=immute_domain)
+
+    # 查询存储实例
+    storage_instances = (
+        StorageInstance.objects.filter(cluster=cluster_obj, instance_role=role)
         .select_related("machine", "machine__bk_city")
         .prefetch_related("bind_entry")
     )
@@ -156,9 +188,8 @@ def cluster_overview(immute_domain: str) -> Dict:
 
     storage_machines = get_machine_stats(storage_stats["machines"])
     # 转换为普通字典并排序
-    stats["storage_instances"] = {
+    stats = {
         "node_count": storage_instances.count(),
-        "by_role": dict(sorted(storage_stats["by_role"].items())),
         "by_status": dict(sorted(storage_stats["by_status"].items())),
         "versions": sorted(list(storage_stats["versions"])),
         "machine_count": len(storage_stats["machines"]),
@@ -166,43 +197,42 @@ def cluster_overview(immute_domain: str) -> Dict:
         "by_sub_zone": dict(sorted(storage_machines["by_sub_zone"].items())),
         "by_device_class": dict(sorted(storage_machines["by_device_class"].items())),
     }
-
-    # 统计代理实例信息
-    proxy_stats = {
-        "by_status": defaultdict(int),
-        "by_machine_type": defaultdict(int),
-        "versions": set(),
-        "machines": set(),
-    }
-
-    for instance in proxy_instances:
-        proxy_stats["by_status"][instance.status] += 1
-        proxy_stats["by_machine_type"][instance.machine_type] += 1
-        if instance.version:
-            proxy_stats["versions"].add(instance.version)
-        proxy_stats["machines"].add(instance.machine.bk_host_id)
-
-    proxy_machines = get_machine_stats(proxy_stats["machines"])
-    stats["proxy_instances"] = {
-        "node_count": proxy_instances.count(),
-        "by_status": dict(sorted(proxy_stats["by_status"].items())),
-        "versions": sorted(list(proxy_stats["versions"])),
-        "machine_count": len(proxy_stats["machines"]),
-        "by_os": dict(sorted(proxy_machines["by_os"].items())),
-        "by_sub_zone": dict(sorted(proxy_machines["by_sub_zone"].items())),
-        "by_device_class": dict(sorted(proxy_machines["by_device_class"].items())),
-    }
-
     return stats
 
 
-def cluster_proxies(immute_domain: str) -> List:
-    """集群proxy 列表"""
+def cluster_storage_overiew(immute_domain: str) -> Dict:
+    masters = cluster_redis_overview(immute_domain=immute_domain, role="redis_master")
+    slaves = cluster_redis_overview(immute_domain=immute_domain, role="redis_slave")
+
+    return {"redis_master": masters, "redis_slave": slaves}
+
+
+def cluster_proxies(immute_domain: str, hosts: Optional[List[str]] = None) -> List:
+    """
+    集群proxy列表
+
+    Args:
+        immute_domain: 集群域名
+        hosts: 可选的主机IP列表，用于过滤特定实例。格式: ["ip1", "ip2"]
+
+    Returns:
+        proxy实例信息列表
+    """
     c_obj = Cluster.objects.get(immute_domain=immute_domain)
     proxy_instances = c_obj.proxyinstance_set.all()
+
+    # 如果指定了hosts参数，进行过滤
+    if hosts:
+        filtered_instances = []
+        for s in proxy_instances:
+            if s.machine.ip in hosts:
+                filtered_instances.append(s)
+
+        proxy_instances = filtered_instances
+
     return [
         {
-            "address": "{}:{}".format(s.machine.ip, s.port),
+            "address": f"{s.machine.ip}:{s.port}",
             "status": s.status,
             "version": s.version,
             "sub_zone": s.machine.bk_sub_zone,

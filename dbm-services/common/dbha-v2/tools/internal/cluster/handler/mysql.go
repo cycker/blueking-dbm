@@ -622,11 +622,11 @@ func (hdl *MysqlClusterHandler) ResetAllMysqlClusters() error {
 // ShowAllMysqlClustersDomain shows domain binding information for all MySQL clusters
 func (hdl *MysqlClusterHandler) ShowAllMysqlClustersDomain() error {
 	if config.ClusterConfig == nil {
-		return gerrors.Newf(gerrors.Failure, "config is not loaded")
+		return printErrorResponse("config is not loaded")
 	}
 
 	if hdl.dbmClient == nil {
-		return gerrors.Newf(gerrors.Failure, "dbm client is nil")
+		return printErrorResponse("dbm client is nil")
 	}
 
 	clusterDomainInfoList := make([]ClusterDomainInfo, 0)
@@ -640,7 +640,7 @@ func (hdl *MysqlClusterHandler) ShowAllMysqlClustersDomain() error {
 		if cluster.Domain != "" {
 			instList, err := hdl.dbmClient.GetAllInstancesOfDomain(cluster.Domain)
 			if err != nil {
-				return gerrors.Newf(gerrors.Failure, "failed to get instances of domain(%s), errmsg: %s",
+				return printErrorResponsef("failed to get instances of domain(%s), errmsg: %s",
 					cluster.Domain, err.Error())
 			}
 			instanceList := make([]string, 0)
@@ -656,7 +656,7 @@ func (hdl *MysqlClusterHandler) ShowAllMysqlClustersDomain() error {
 		if cluster.DomainSlave != "" {
 			instList, err := hdl.dbmClient.GetAllInstancesOfDomain(cluster.DomainSlave)
 			if err != nil {
-				return gerrors.Newf(gerrors.Failure, "failed to get instances of domain(%s), errmsg: %s",
+				return printErrorResponsef("failed to get instances of domain(%s), errmsg: %s",
 					cluster.DomainSlave, err.Error())
 			}
 			instanceList := make([]string, 0)
@@ -678,11 +678,11 @@ func (hdl *MysqlClusterHandler) ShowAllMysqlClustersDomain() error {
 // ShowAllMysqlClustersNodes shows all nodes status and role for all MySQL clusters
 func (hdl *MysqlClusterHandler) ShowAllMysqlClustersNodes() error {
 	if config.ClusterConfig == nil {
-		return gerrors.Newf(gerrors.Failure, "config is not loaded")
+		return printErrorResponse("config is not loaded")
 	}
 
 	if hdl.dbmClient == nil {
-		return gerrors.Newf(gerrors.Failure, "dbm client is nil")
+		return printErrorResponse("dbm client is nil")
 	}
 
 	clusterNodeInfoList := make([]ClusterNodeInfo, 0)
@@ -699,7 +699,7 @@ func (hdl *MysqlClusterHandler) ShowAllMysqlClustersNodes() error {
 
 		metadataList, err := hdl.dbmClient.QueryMetadataFromDbm(0, ipList)
 		if err != nil {
-			return gerrors.Newf(gerrors.Failure, "failed to query metadata for cluster(%s), errmsg: %s",
+			return printErrorResponsef("failed to query metadata for cluster(%s), errmsg: %s",
 				cluster.Domain, err.Error())
 		}
 
@@ -727,7 +727,7 @@ func (hdl *MysqlClusterHandler) ShowAllMysqlClustersNodes() error {
 // Directly connects to all backend nodes from config file to query replication status
 func (hdl *MysqlClusterHandler) ShowAllMysqlClustersReplication() error {
 	if config.ClusterConfig == nil {
-		return gerrors.Newf(gerrors.Failure, "config is not loaded")
+		return printErrorResponse("config is not loaded")
 	}
 
 	clusterReplList := make([]ClusterReplicationInfo, 0)
@@ -764,7 +764,7 @@ func (hdl *MysqlClusterHandler) ShowAllMysqlClustersReplication() error {
 		for range nodeList {
 			result := <-resultCh
 			if result.err != nil {
-				return result.err
+				return printErrorResponse(result.err.Error())
 			}
 			results[result.index] = result.replInfo
 		}
@@ -813,21 +813,43 @@ func (hdl *MysqlClusterHandler) getBackendNodeReplicationInfo(host string, port 
 // ShowAllMysqlClustersRouting shows proxy routing (backend) information for all MySQL clusters
 func (hdl *MysqlClusterHandler) ShowAllMysqlClustersRouting() error {
 	if config.ClusterConfig == nil {
-		return gerrors.Newf(gerrors.Failure, "config is not loaded")
+		return printErrorResponse("config is not loaded")
 	}
 
 	clusterRoutingList := make([]ClusterProxyRoutingInfo, 0)
 
 	for _, cluster := range config.ClusterConfig.MysqlClusters {
+		proxyIPs := make([]string, 0, len(cluster.Proxy))
+		for _, proxy := range cluster.Proxy {
+			proxyIPs = append(proxyIPs, proxy.Host)
+		}
+
+		metadataList, err := hdl.dbmClient.QueryMetadataFromDbm(0, proxyIPs)
+		if err != nil {
+			return printErrorResponsef("failed to query metadata for cluster(%s), errmsg: %s",
+				cluster.Domain, err.Error())
+		}
+
+		runningProxyIPs := make(map[string]bool)
+		for _, meta := range metadataList {
+			if meta.Status == string(dbm.StatusRunning) {
+				runningProxyIPs[meta.IP] = true
+			}
+		}
+
 		clusterRouting := ClusterProxyRoutingInfo{
 			Cluster: cluster.Domain,
 			Proxies: make([]ProxyRoutingEntry, 0),
 		}
 
 		for _, proxy := range cluster.Proxy {
+			if !runningProxyIPs[proxy.Host] {
+				continue
+			}
+
 			proxyEntry, err := hdl.getProxyRoutingEntry(proxy.Host, proxy.AdminPort)
 			if err != nil {
-				return err
+				return printErrorResponse(err.Error())
 			}
 			clusterRouting.Proxies = append(clusterRouting.Proxies, *proxyEntry)
 		}

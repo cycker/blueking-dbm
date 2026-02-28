@@ -459,6 +459,7 @@ class TicketType(StrStructuredEnum):
     SQLSERVER_BUILD_DB_SYNC = TicketEnumField("SQLSERVER_BUILD_DB_SYNC", _("SQLServer DB建立同步"), register_iam=False)
     SQLSERVER_MODIFY_STATUS = TicketEnumField("SQLSERVER_MODIFY_STATUS", _("SQLServer 修改故障实例状态"),
                                               register_iam=False)
+    SQLSERVER_DATA_EXPORT = TicketEnumField("SQLSERVER_DATA_EXPORT", _("SQLServer 数据导出"), _("数据处理"))
 
     # REDIS
     REDIS_PLUGIN_CREATE_CLB = TicketEnumField("REDIS_PLUGIN_CREATE_CLB", _("Redis 创建CLB"), _("集群管理"))
@@ -644,6 +645,7 @@ class TicketType(StrStructuredEnum):
     MONGODB_INSTALL_DBMON = TicketEnumField("MONGODB_INSTALL_DBMON", _("MongoDB 安装DBMon"), _("集群维护"))
     MONGODB_AUTOFIX = TicketEnumField("MONGODB_AUTOFIX", _("MongoDB 故障自愈"), _("集群维护"))
     MONGODB_INSTANCE_DEINSTALL = TicketEnumField("MONGODB_INSTANCE_DEINSTALL", _("MongoDB 实例下架"), _("集群维护"))
+    MONGODB_INSTANCE_FIX_STATUS = TicketEnumField("MONGODB_INSTANCE_FIX_STATUS", _("MongoDB 节点状态修复"), _("集群维护"))
 
     # 云区域组件
     CLOUD_SERVICE_APPLY = EnumField("CLOUD_SERVICE_APPLY", _("云区域服务部署"))
@@ -774,6 +776,7 @@ class FlowErrCode(IntStructuredEnum):
     AUTO_EXCLUSIVE_ERROR = EnumField(1, _("自动互斥重试错误代码"))
     MANUAL_EXCLUSIVE_ERROR = EnumField(2, _("手动互斥重试错误代码"))
     SYSTEM_TERMINATED_ERROR = EnumField(3, _("系统终止错误代码"))
+    HCM_APPLY_LACK_RESOURCE_ERROR = EnumField(4, _("海磊申请资源不足错误代码"))
 
     @classmethod
     def get_err_code(cls, err: Exception, retry_type: str) -> "FlowErrCode":

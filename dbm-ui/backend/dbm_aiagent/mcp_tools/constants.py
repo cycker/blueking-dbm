@@ -19,6 +19,7 @@ class DBMMcpTools(StrStructuredEnum):
     DBMETA_UPDATE = EnumField("dbmeta-update", "dbmeta-update")
     MYSQL_QUERY = EnumField("mysql-query", "mysql-query")
     MYSQL_BILL = EnumField("mysql-bill", "mysql-bill")
+    MYSQL_CONFIG = EnumField("mysql-config", "mysql-config")
     MYSQL_SLOWLOG = EnumField("mysql-slowlog", "mysql-slowlog")
     MYSQL_METRICS = EnumField("mysql-metrics", "mysql-metrics")
     SQLSERVER_QUERY = EnumField("sqlserver-query", "sqlserver-query")
@@ -29,7 +30,7 @@ class DBMMcpTools(StrStructuredEnum):
     REDIS_QUERY_META = EnumField("redis-query-meta", "redis-query-meta")
     REDIS_QUERY_STATUS = EnumField("redis-query-status", "redis-query-status")
     REDIS_QUERY_LOG = EnumField("redis-query-log", "redis-query-log")
-    REDIS_QUERY_METRIC = EnumField("redis-query-metric", "redis-query-metric")
+    REDIS_METRICS = EnumField("redis-metrics", "redis-metrics")
     REDIS_QUERY_ALARM = EnumField("redis-query-alarm", "redis-query-alarm")
     REDIS_BILL = EnumField("redis-bill", "redis-bill")
     REDIS_JOB = EnumField("redis-job", "redis-job")
@@ -39,7 +40,8 @@ class DBMMcpTools(StrStructuredEnum):
     MONGODB_QUERY_ALARM = EnumField("mongodb-query-alarm", "mongodb-query-alarm")
     MONGODB_BILL = EnumField("mongodb-bill", "mongodb-bill")
     MONGODB_JOB = EnumField("mongodb-job", "mongodb-job")
-
+    KAFKA_QUERY_META = EnumField("kafka-query-meta", "kafka-query-meta")
+    KAFKA_BILL = EnumField("kafka-bill", "kafka-bill")
 
 class DBMMCPTags(StrStructuredEnum):
     READ = EnumField("read", _("只读"))

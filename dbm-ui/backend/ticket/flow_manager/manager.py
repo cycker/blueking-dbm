@@ -152,7 +152,7 @@ class TicketFlowManager(object):
         if target_status == TicketStatus.TERMINATED and is_apply:
             create_recycle_ticket.apply_async(args=(self.ticket.id, [], TicketType.RECYCLE_APPLY_HOST))
 
-        # 如果是集群的禁用、启动、删除则处理相对应代办操作
+        # 如果是集群的禁用、启动、删除、sqlserver重置则处理相对应代办操作
         if (
             self.ticket.ticket_type in BuilderFactory.ticket_type__cluster_phase
             and target_status == TicketStatus.SUCCEEDED
