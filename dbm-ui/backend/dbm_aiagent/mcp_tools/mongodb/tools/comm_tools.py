@@ -8,8 +8,27 @@ an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express o
 specific language governing permissions and limitations under the License.
 """
 import ipaddress
+import json
 from datetime import datetime
-from typing import Union
+from typing import Any, Dict, Union
+
+
+def estimate_token_count(data: Dict[str, Any]) -> int:
+    """
+    计算 result 序列化后对应的 token 数量。
+    优先使用 tiktoken（与 OpenAI GPT/cl100k_base 一致），不可用时按字符数估算（约 3 字符/token）。
+    """
+    try:
+        text = json.dumps(data, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return 0
+    try:
+        import tiktoken  # pyright: ignore[reportMissingImports]
+
+        enc = tiktoken.get_encoding("cl100k_base")
+        return max(1, len(enc.encode(text)))
+    except Exception:  # tiktoken 未安装或编码不可用时回退
+        return max(1, len(text) // 3)
 
 
 def sort_by_ip_port(data_list):

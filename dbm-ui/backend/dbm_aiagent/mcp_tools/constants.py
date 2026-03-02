@@ -34,14 +34,17 @@ class DBMMcpTools(StrStructuredEnum):
     REDIS_QUERY_ALARM = EnumField("redis-query-alarm", "redis-query-alarm")
     REDIS_BILL = EnumField("redis-bill", "redis-bill")
     REDIS_JOB = EnumField("redis-job", "redis-job")
-    MONGODB_QUERY_META = EnumField("mongodb-query-meta", "mongodb-query-meta")
-    MONGODB_QUERY_STATUS = EnumField("mongodb-query-status", "mongodb-query-status")
-    MONGODB_QUERY_LOG = EnumField("mongodb-query-log", "mongodb-query-log")
-    MONGODB_QUERY_ALARM = EnumField("mongodb-query-alarm", "mongodb-query-alarm")
+    MONGODB_META = EnumField("mongodb-meta", "mongodb-meta")
+    MONGODB_SYSTEM = EnumField("mongodb-system", "mongodb-system")
+    MONGODB_METRICS = EnumField("mongodb-metrics", "mongodb-metrics")
     MONGODB_BILL = EnumField("mongodb-bill", "mongodb-bill")
     MONGODB_JOB = EnumField("mongodb-job", "mongodb-job")
+    MONGODB_LOG = EnumField("mongodb-log", "mongodb-log")
+    MONGODB_ALARM = EnumField("mongodb-alarm", "mongodb-alarm")
+    MONGODB_STATUS = EnumField("mongodb-status", "mongodb-status")
     KAFKA_QUERY_META = EnumField("kafka-query-meta", "kafka-query-meta")
     KAFKA_BILL = EnumField("kafka-bill", "kafka-bill")
+
 
 class DBMMCPTags(StrStructuredEnum):
     READ = EnumField("read", _("只读"))

@@ -43,7 +43,7 @@ class MongoJobMcpToolsViewSet(McpToolsViewSet):
     )
     def get_mongodb_source_access(self, request, *args, **kwargs):
         cluster_domain = self.get_param("cluster_domain")
-        cluster_obj = Cluster.objects.get(immute_domain=cluster_domain)
+        cluster_obj = Cluster.objects.get(immute_domain=cluster_domain)  # pyright: ignore[reportAttributeAccessIssue]
         cluster_all_ips = [
             e.machine.ip
             for e in chain(

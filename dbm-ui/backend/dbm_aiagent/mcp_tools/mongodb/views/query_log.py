@@ -13,60 +13,77 @@ from rest_framework.response import Response
 from backend.dbm_aiagent.mcp_tools.constants import DBMMCPTags, DBMMcpTools
 from backend.dbm_aiagent.mcp_tools.decorators import mcp_tools_api_decorator
 from backend.dbm_aiagent.mcp_tools.mongodb.impl.mongodb_slowlog import (
-    get_cluster_slowlog_static,
-    get_host_slowlog,
+    get_mongodb_slowlog_list,
+    get_mongodb_slowlog_overview,
 )
 from backend.dbm_aiagent.mcp_tools.mongodb.serializers.mongodb_log import (
-    MongoSlowClusterStaticSerializer,
-    MongoSlowlog4HostInputSerializer,
-    MongoSlowlogInputSerializer,
+    MongoSlowlogListInputSerializer,
+    MongoSlowlogOverviewInputSerializer,
+    MongoSlowlogOverviewResponseSerializer,
     MongoSlowlogResponseSerializer,
 )
+from backend.dbm_aiagent.mcp_tools.mongodb.tools.comm_tools import estimate_token_count
 from backend.dbm_aiagent.mcp_tools.views import McpToolsViewSet
 from backend.iam_app.handlers.drf_perm.base import RejectPermission
 
 
-class MongoQueryLogMcpToolsViewSet(McpToolsViewSet):
+class MongoLogMcpToolsViewSet(McpToolsViewSet):
     default_permission_class = [RejectPermission()]
 
     @mcp_tools_api_decorator(
         description=str(
             _(
-                "功能: 获取MongoDB集群时间范围内慢查询日志统计数据；"
-                "展示方式: 分多维表格展示，按实例维度统计并按最大耗时、慢日志条数排序"
+                "功能: 查询 MongoDB 集群慢查询按 ns（命名空间）与 queryHash 聚合的统计；"
+                "适用于 MongoShardedCluster 或 MongoReplicaSetCluster；"
+                "以 queryHash + ns 为唯一标识做去重统计，返回按 ns 分桶、每桶内按 queryHash 的条数。"
             )
         ),
-        request_slz=MongoSlowlogInputSerializer,
-        response_slz=MongoSlowClusterStaticSerializer,
+        request_slz=MongoSlowlogOverviewInputSerializer,
+        response_slz=MongoSlowlogOverviewResponseSerializer,
         tags=[DBMMCPTags.READ],
-        mcp=[DBMMcpTools.MONGODB_QUERY_LOG],
-        name_prefix="mongodb_query_log",
+        mcp=[DBMMcpTools.MONGODB_LOG],
+        name_prefix=DBMMcpTools.MONGODB_LOG,
     )
-    def get_cluster_slowlog_statics(self, request, *args, **kwargs):
+    def get_mongodb_slowlog_overview(self, request, *args, **kwargs):
+        cluster_domain = self.get_param("cluster_domain") or None
+        instance_host = self.get_param("instance_host") or None
+        instance = self.get_param("instance") or None
         start_time = self.get_param("start_time")
         end_time = self.get_param("end_time")
-        immute_domain = self.get_param("immute_domain")
-        return Response(
-            get_cluster_slowlog_static(
-                immute_domain=immute_domain, start_time=start_time, end_time=end_time
-            )
+        # 调用get_mongodb_slowlog_overview，如果返回结果不为空且为字典，则计算token_count
+        out = get_mongodb_slowlog_overview(
+            cluster_domain=cluster_domain,
+            instance_host=instance_host,
+            instance=instance,
+            start_time=start_time,
+            end_time=end_time,
         )
+        if isinstance(out, dict):
+            out["token_count"] = estimate_token_count(out)
+        return Response(out)
 
     @mcp_tools_api_decorator(
-        description=str(_("查询某台机器上的MongoDB慢查询日志，包括执行时间、操作类型、命名空间等")),
-        request_slz=MongoSlowlog4HostInputSerializer,
+        description=str(_("查询 MongoDB 集群的慢查询日志，支持按 ns、queryHash 可选过滤")),
+        request_slz=MongoSlowlogListInputSerializer,
         response_slz=MongoSlowlogResponseSerializer,
         tags=[DBMMCPTags.READ],
-        mcp=[DBMMcpTools.MONGODB_QUERY_LOG],
-        name_prefix="mongodb_query_log",
+        mcp=[DBMMcpTools.MONGODB_LOG],
+        name_prefix=DBMMcpTools.MONGODB_LOG,
     )
-    def fetch_host_slowlog(self, request, *args, **kwargs):
+    def get_mongodb_slowlog_list(self, request, *args, **kwargs):
+        cluster_domain = self.get_param("cluster_domain") or None
+        instance = self.get_param("instance") or None
         start_time = self.get_param("start_time")
         end_time = self.get_param("end_time")
-        ip = self.get_param("ip")
-        immute_domain = self.get_param("immute_domain")
+        ns = self.get_param("ns") or None
+        query_hash = self.get_param("queryHash") or None
         return Response(
-            get_host_slowlog(
-                immute_domain=immute_domain, start_time=start_time, end_time=end_time, host=ip
+            get_mongodb_slowlog_list(
+                cluster_domain=cluster_domain,
+                instance=instance,
+                start_time=start_time,
+                end_time=end_time,
+                ns=ns,
+                query_hash=query_hash,
             )
         )

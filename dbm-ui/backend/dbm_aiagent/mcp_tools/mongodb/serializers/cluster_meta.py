@@ -10,8 +10,6 @@ specific language governing permissions and limitations under the License.
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
-from backend.db_meta.enums import InstanceStatus
-
 
 class MongoAddrSerializer(serializers.Serializer):
     address = serializers.CharField(help_text=_("ip:port 形式的实例地址"))
@@ -142,3 +140,39 @@ class MongoClustersOutputSerializer(serializers.Serializer):
     mongos_count = serializers.IntegerField(help_text=_("Mongos节点数"), required=False)
     shard_count = serializers.IntegerField(help_text=_("分片数"), required=False)
     storage_count = serializers.IntegerField(help_text=_("存储节点数"), required=False)
+
+
+class MongoMetaInfoInputSerializer(serializers.Serializer):
+    """根据 IP、IP:PORT 或集群域名查询 MongoDB 实例元数据的入参"""
+
+    value = serializers.CharField(
+        help_text=_("域名、IP 或 IP:PORT，如 11.177.156.201、11.177.156.201:50005、mongo.xxx.db"),
+        required=True,
+        allow_blank=False,
+    )
+
+
+class MongoMetaItemSerializer(serializers.Serializer):
+    """单条 MongoDB 实例元数据"""
+
+    cluster_domain = serializers.CharField(help_text=_("集群域名"))
+    instance_host = serializers.CharField(help_text=_("主机 IP"))
+    ip = serializers.CharField(help_text=_("IP 地址"))
+    port = serializers.IntegerField(help_text=_("端口"))
+    instance_role = serializers.CharField(help_text=_("实例角色"))
+    cluster_type = serializers.CharField(help_text=_("集群类型"))
+    cluster_name = serializers.CharField(help_text=_("集群名称"))
+    cluster_id = serializers.IntegerField(help_text=_("集群 ID"))
+    bk_biz_id = serializers.IntegerField(help_text=_("业务 ID"))
+    app_name = serializers.CharField(help_text=_("应用名称"))
+    shard = serializers.CharField(help_text=_("分片信息"))
+
+
+class MongoMetaInfoOutputSerializer(serializers.Serializer):
+    """get_meta_info 返回：meta_list + error"""
+
+    meta_list = serializers.ListField(
+        child=MongoMetaItemSerializer(),
+        help_text=_("匹配的 MongoDB 实例元数据列表"),
+    )
+    error = serializers.CharField(help_text=_("错误信息，成功时为空"))

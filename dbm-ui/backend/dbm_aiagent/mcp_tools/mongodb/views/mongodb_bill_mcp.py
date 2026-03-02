@@ -38,7 +38,9 @@ class MongoBillMcpToolsViewSet(McpToolsViewSet):
         bk_biz_id = self.get_param("bk_biz_id")
         cluster_domain = self.get_param("cluster_domain")
         backup_type = self.get_param("backup_type")
-        cluster_obj = Cluster.objects.get(bk_biz_id=bk_biz_id, immute_domain=cluster_domain)
+        cluster_obj = Cluster.objects.get(  # pyright: ignore[reportAttributeAccessIssue]
+            bk_biz_id=bk_biz_id, immute_domain=cluster_domain
+        )
         cluster_id = cluster_obj.id
         ns_filter = {
             "db_patterns": None,

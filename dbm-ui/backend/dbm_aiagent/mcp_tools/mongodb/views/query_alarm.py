@@ -23,7 +23,7 @@ from backend.dbm_aiagent.mcp_tools.views import McpToolsViewSet
 from backend.iam_app.handlers.drf_perm.base import RejectPermission
 
 
-class MongoQueryALARMMcpToolsViewSet(McpToolsViewSet):
+class MongoAlarmMcpToolsViewSet(McpToolsViewSet):
     default_permission_class = [RejectPermission()]
 
     @mcp_tools_api_decorator(
@@ -31,8 +31,8 @@ class MongoQueryALARMMcpToolsViewSet(McpToolsViewSet):
         request_slz=MongoClusterAlarmInputSerializer,
         response_slz=MongoClusterAlarmOutputSerializer,
         tags=[DBMMCPTags.READ],
-        mcp=[DBMMcpTools.MONGODB_QUERY_ALARM],
-        name_prefix="mongodb_query_alarm",
+        mcp=[DBMMcpTools.MONGODB_ALARM],
+        name_prefix=DBMMcpTools.MONGODB_ALARM,
     )
     def fetch_cluster_alarms(self, request, *args, **kwargs):
         start_time = self.get_param("start_time")
@@ -49,8 +49,8 @@ class MongoQueryALARMMcpToolsViewSet(McpToolsViewSet):
         request_slz=MongoAppAlarmInputSerializer,
         response_slz=MongoAppAlarmOutputSerializer,
         tags=[DBMMCPTags.READ],
-        mcp=[DBMMcpTools.MONGODB_QUERY_ALARM],
-        name_prefix="mongodb_query_alarm",
+        mcp=[DBMMcpTools.MONGODB_ALARM],
+        name_prefix=DBMMcpTools.MONGODB_ALARM,
     )
     def fetch_app_alarms(self, request, *args, **kwargs):
         start_time = self.get_param("start_time")

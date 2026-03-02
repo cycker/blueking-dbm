@@ -121,6 +121,9 @@ name = "tencent"
 url = "https://mirrors.tencent.com/repository/pypi/tencent_pypi/simple"
 priority = "supplemental"
 
+[tool.pyright]
+pythonVersion = "3.11"
+
 [tool.pytest.ini_options]
 #console_output_style = 'classic'
 log_cli = true

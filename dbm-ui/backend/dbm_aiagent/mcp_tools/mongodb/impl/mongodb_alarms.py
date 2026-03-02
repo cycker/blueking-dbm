@@ -9,7 +9,7 @@ specific language governing permissions and limitations under the License.
 """
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 from backend import env
 from backend.components import BKMonitorV3Api
@@ -22,7 +22,10 @@ def get_cluster_alarms(
     end_time: Optional[Union[int, str, datetime]] = None,
 ) -> Dict:
     alarms = get_alarms_flat(immute_domain=immute_domain, start_time=start_time, end_time=end_time)
-    by_alert = alarms.get(immute_domain, {})
+    by_alert = cast(
+        Dict[str, List[Any]],
+        alarms.get(immute_domain, {}) if immute_domain is not None else {},
+    )
     cluster_alarms = [{"alert_name": k, "alert_detail": v} for k, v in by_alert.items()]
     total = sum(len(v) for v in by_alert.values())
     return {"total_alarms": total, "alarm_detail": cluster_alarms}

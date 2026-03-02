@@ -7,137 +7,206 @@ Unless required by applicable law or agreed to in writing, software distributed 
 an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 """
-import statistics
-from collections import defaultdict
-from typing import Any, Dict, List
+from typing import Dict, Optional
 
 from django.utils import timezone
 
 from backend import env
 from backend.components import BKLogApi
-from backend.db_meta.models import Cluster
 from backend.dbm_aiagent.mcp_tools.exceptions import DBMMcpBaseException
+from backend.exceptions import ApiResultError
 from backend.utils.time import datetime2str
 
-
-def _calc_duration_stats(durations: List[int]) -> Dict[str, Any]:
-    if not durations:
-        return {"max_ms": 0, "min_ms": 0, "avg_ms": 0, "median_ms": 0}
-    return {
-        "max_ms": round(max(durations) / 1000, 2),
-        "min_ms": round(min(durations) / 1000, 2),
-        "avg_ms": round(statistics.mean(durations) / 1000, 2),
-        "median_ms": round(statistics.median(durations) / 1000, 2),
-    }
+# cluster_domain 与 instance_host 不能同时为空
+SLOWLOG_CLUSTER_OR_HOST_REQUIRED = "cluster_domain and instance_host cannot both be empty"
 
 
-def get_cluster_slowlog_static(
-    immute_domain: str,
-    start_time: timezone.datetime,
-    end_time: timezone.datetime,
+def _require_cluster_or_host(cluster_domain: str, instance_host: str) -> None:
+    if not (cluster_domain or instance_host):
+        raise DBMMcpBaseException(msg=SLOWLOG_CLUSTER_OR_HOST_REQUIRED)
+
+
+def get_mongodb_slowlog_overview(
+    cluster_domain: Optional[str] = None,
+    instance_host: Optional[str] = None,
+    instance: Optional[str] = None,
+    start_time: Optional[timezone.datetime] = None,
+    end_time: Optional[timezone.datetime] = None,
 ) -> Dict:
-    """获取集群时间范围内慢查询日志统计数据。当前返回空结构，需对接 MongoDB 慢日志检索（如 BKLog index）。"""
-    cluster_slows = _get_mongo_slowlog(
-        get_query_params(immute_domain=immute_domain, start_time=start_time, end_time=end_time)
-    )
-    instance_data = defaultdict(lambda: {"durations": [], "ops": defaultdict(int), "records": []})
-    all_durations = []
-    all_ops = defaultdict(int)
-    for record in cluster_slows:
-        instance = record.get("instance_addr", "unknown")
-        duration = record.get("duration_ms", 0) * 1000
-        op = record.get("op", "unknown")
-        instance_data[instance]["durations"].append(duration)
-        instance_data[instance]["ops"][op] += 1
-        instance_data[instance]["records"].append(record)
-        all_durations.append(duration)
-        all_ops[op] += 1
-    result = {
-        "summary": {
-            "total_count": len(cluster_slows),
-            "instance_count": len(instance_data),
-            "duration_stats": _calc_duration_stats(all_durations),
-            "top_ops": dict(sorted(all_ops.items(), key=lambda x: x[1], reverse=True)[:10]),
-        },
-        "by_instance": {},
+    # 将get_mongodb_slowlog_aggr_by_ns和get_mongodb_slowlog_aggr_by_instance的结果合并
+    result1 = get_mongodb_slowlog_aggr_by_ns(cluster_domain, instance_host, instance, start_time, end_time)
+    result2 = get_mongodb_slowlog_aggr_by_instance(cluster_domain, instance_host, instance, start_time, end_time)
+    return {
+        "aggr_by_ns_and_queryHash": result1,
+        "aggr_by_shard_and_instance": result2,
     }
-    for instance, data in instance_data.items():
-        durations = data["durations"]
-        records = data["records"]
-        slowest = max(records, key=lambda x: x.get("duration_ms", 0)) if records else {}
-        slowest_info = (
-            {
-                "op": slowest.get("op", "unknown"),
-                "ns": slowest.get("ns", ""),
-                "duration_ms": slowest.get("duration_ms", 0),
-                "create_time": slowest.get("create_time", ""),
+
+
+def get_mongodb_slowlog_aggr_by_ns(
+    cluster_domain: Optional[str] = None,
+    instance_host: Optional[str] = None,
+    instance: Optional[str] = None,
+    start_time: Optional[timezone.datetime] = None,
+    end_time: Optional[timezone.datetime] = None,
+) -> Dict:
+    """查询 MongoDB 集群慢查询按 ns 与 queryHash 聚合的统计，适用于 MongoShardedCluster 或 MongoReplicaSetCluster。"""
+    _require_cluster_or_host(cluster_domain or "", instance_host or "")
+    if start_time is None or end_time is None:
+        raise DBMMcpBaseException(msg="start_time and end_time are required")
+    query_params = get_query_params(
+        cluster_domain=cluster_domain,
+        instance_host=instance_host,
+        instance=instance,
+        start_time=start_time,
+        end_time=end_time,
+        size=0,  # 返回0条数据，只要aggs 的结果
+        aggs={
+            "by_ns": {
+                "terms": {
+                    "field": "attr.ns",
+                    "size": 100,
+                },
+                "aggs": {
+                    "by_queryHash": {
+                        "terms": {
+                            "field": "attr.queryHash",
+                            "size": 10,
+                        }
+                    }
+                },
             }
-            if slowest
-            else {}
-        )
-        result["by_instance"][instance] = {
-            "total_count": len(durations),
-            "duration_stats": _calc_duration_stats(durations),
-            "top_ops": dict(sorted(data["ops"].items(), key=lambda x: x[1], reverse=True)[:5]),
-            "slowest_query": slowest_info,
         }
+    )
+    result = _get_mongo_slowlog(query_params)
     return result
 
 
-def get_host_slowlog(
-    immute_domain: str,
-    start_time: timezone.datetime,
-    end_time: timezone.datetime,
-    host: str,
+def get_mongodb_slowlog_aggr_by_instance(
+    cluster_domain: Optional[str] = None,
+    instance_host: Optional[str] = None,
+    instance: Optional[str] = None,
+    start_time: Optional[timezone.datetime] = None,
+    end_time: Optional[timezone.datetime] = None,
 ) -> Dict:
-    """获取某台主机上时间范围内慢查询日志。当前返回空列表，需对接 MongoDB 慢日志检索。"""
-    host_slows = _get_mongo_slowlog(
-        get_query_params(
-            immute_domain=immute_domain, start_time=start_time, end_time=end_time, host=host
-        )
+    """查询 MongoDB 集群慢查询按 ns 与 queryHash 聚合的统计，适用于 MongoShardedCluster 或 MongoReplicaSetCluster。"""
+    _require_cluster_or_host(cluster_domain or "", instance_host or "")
+    if start_time is None or end_time is None:
+        raise DBMMcpBaseException(msg="start_time and end_time are required")
+    query_params = get_query_params(
+        cluster_domain=cluster_domain,
+        instance_host=instance_host,
+        instance=instance,
+        start_time=start_time,
+        end_time=end_time,
+        size=0,  # 返回0条数据，只要aggs 的结果
+        aggs={
+            "by_shard": {
+                "terms": {
+                    "field": "meta.instance_set_name",
+                    "size": 100,
+                },
+                "aggs": {
+                    "by_instance": {
+                        "terms": {
+                            "field": "meta.instance",
+                            "size": 40,
+                        }
+                    }
+                }
+            },
+        }
     )
-    return {"slowlog_entries": host_slows, "total_count": len(host_slows)}
+    result = _get_mongo_slowlog(query_params)
+    return result
 
 
-def _get_mongo_slowlog(query_params: Dict) -> List[Dict]:
+def get_mongodb_slowlog_list(
+    cluster_domain: Optional[str] = None,
+    instance: Optional[str] = None,
+    start_time: Optional[timezone.datetime] = None,
+    end_time: Optional[timezone.datetime] = None,
+    ns: Optional[str] = None,
+    query_hash: Optional[str] = None,
+) -> Dict:
+    """查询 MongoDB 集群的慢查询日志，支持按 ns、queryHash 过滤。"""
+    _require_cluster_or_host(cluster_domain or "", instance or "")
+    if start_time is None or end_time is None:
+        raise DBMMcpBaseException(msg="start_time and end_time are required")
+    query_params = get_query_params(
+        cluster_domain=cluster_domain,
+        instance=instance,
+        start_time=start_time,
+        end_time=end_time,
+        ns=ns,
+        query_hash=query_hash,
+        size=10
+    )
+    entries = _get_mongo_slowlog(query_params)
+    return {"slowlog_entries": entries, "total_count": len(entries)}
+
+
+def _get_mongo_slowlog(query_params: Dict) -> Dict:
     """从日志平台查询 MongoDB 慢日志。需配置 DBM_MONGODB 相关 index。"""
     try:
         resp = BKLogApi.esquery_search(query_params, use_admin=True)
-        slog_logs = []
-        for hit in resp.get("hits", {}).get("hits", []):
-            log_src = hit.get("_source") or {}
-            mongo_slow = log_src.get("mongodb") or log_src.get("mongo") or {}
-            slow_d = mongo_slow.get("slowlog") or mongo_slow
-            ext = log_src.get("__ext") or {}
-            slog_logs.append({
-                "instance_addr": "{}:{}".format(ext.get("instance_host", ""), ext.get("instance_port", "")),
-                "instance_role": ext.get("instance_role", ""),
-                "create_time": (log_src.get("event") or {}).get("created", ""),
-                "duration_ms": slow_d.get("duration", {}).get("ms", 0) or slow_d.get("duration_ms", 0),
-                "op": slow_d.get("op", ""),
-                "ns": slow_d.get("ns", ""),
-            })
-        return slog_logs
+        # 打印resp的内容
+        return resp
+    except DBMMcpBaseException:
+        raise
+    except ApiResultError as e:
+        err_msg = str(e)
+        if "从meta获取连接信息失败" in err_msg or "meta" in err_msg.lower():
+            raise DBMMcpBaseException(
+                msg=(
+                    f"蓝鲸日志平台查询失败: {err_msg}。"
+                    f"请确认业务 ID {getattr(env, 'DBA_APP_BK_BIZ_ID', '')} 下已配置 MongoDB 慢日志采集项与索引集 mongodb_slowlog，且日志平台 meta 服务可用。"
+                )
+            )
+        raise DBMMcpBaseException(msg=f"query mongodb slow logs failed: {e}")
     except Exception as e:
         raise DBMMcpBaseException(msg=f"query mongodb slow logs failed: {e}")
 
 
 def get_query_params(
-    immute_domain: str,
-    start_time: timezone.datetime,
-    end_time: timezone.datetime,
-    host: str = None,
+    start_time: Optional[timezone.datetime] = None,
+    end_time: Optional[timezone.datetime] = None,
+    cluster_domain: Optional[str] = None,
+    instance_host: Optional[str] = None,
+    instance_role: Optional[str] = None,
+    instance: Optional[str] = None,
+    ns: Optional[str] = None,
+    query_hash: Optional[str] = None,
+    size: int = 100,
+    aggs: Optional[Dict] = None,
 ) -> Dict:
     """MongoDB 慢日志查询参数。indices 需按实际 MongoDB 慢日志 index 配置。"""
-    query_parts = [f'__ext.cluster_domain:"{immute_domain}"']
-    if host:
-        query_parts.append(f'__ext.instance_host:"{host}"')
-    return {
-        "indices": f"{env.DBA_APP_BK_BIZ_ID}_bklog.mongodb_slowlog",
+    MONGO_SLOWLOG_INITIAL_QUERY_STRING = '(NOT meta.instance_role:"backup") AND id:51803 AND (NOT attr.ns:*.$cmd)'
+
+    if start_time is None or end_time is None:
+        raise DBMMcpBaseException(msg="start_time and end_time are required")
+    domain = cluster_domain or ""
+    query_parts = []
+    if domain:
+        query_parts.append(f'meta.cluster_domain:"{domain}"')
+    if instance_host:
+        query_parts.append(f'meta.instance_host:"{instance_host}"')
+    if instance_role:
+        query_parts.append(f'meta.instance_role:"{instance_role}"')
+    if instance:
+        query_parts.append(f'meta.instance:"{instance}"')
+    if ns:
+        query_parts.append(f'attr.ns:"{ns}"')
+    if query_hash:
+        query_parts.append(f'attr.queryHash:"{query_hash}"')
+    query_params = {
+        "indices": f"{env.DBA_APP_BK_BIZ_ID}_bklog.mongodb_log",
         "start_time": datetime2str(start_time),
         "end_time": datetime2str(end_time),
-        "query_string": " AND ".join(query_parts),
+        "query_string": MONGO_SLOWLOG_INITIAL_QUERY_STRING + " AND " + " AND ".join(query_parts) if query_parts else "*",
         "start": 0,
-        "size": 1000,
-        "sort_list": [["dtEventTimeStamp", "asc"], ["gseIndex", "asc"], ["iterationIndex", "asc"]],
+        "size": size,
+        "sort_list": [["durationMillis", "desc"]],
     }
+    if aggs:
+        query_params["aggs"] = aggs
+    return query_params

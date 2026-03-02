@@ -7,22 +7,50 @@ Unless required by applicable law or agreed to in writing, software distributed 
 an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 """
+import copy
+import logging
+import re
+import time
 from collections import defaultdict
 from typing import Dict, List
 
 from django.db.models import F
 
+from backend import env
+from backend.components import BKMonitorV3Api
 from backend.configuration.constants import DBType
 from backend.configuration.models import DBAdministrator
 from backend.db_meta.enums import ClusterType, MachineType
 from backend.db_meta.models import AppCache, Cluster, ClusterEntry, Machine, ProxyInstance, StorageInstance
 
+logger = logging.getLogger("root")
+
+# 用于从 TS 指标查询 meta 的 unify_query 模板（instant）
+_UNIFY_QUERY_META_PARAMS = {
+    "bk_biz_id": 3,
+    "query_configs": [
+        {
+            "data_source_label": "prometheus",
+            "data_type_label": "time_series",
+            "promql": "",
+            "interval": 60,
+            "alias": "a",
+        }
+    ],
+    "expression": "a",
+    "alias": "a",
+    "start_time": 0,
+    "end_time": 0,
+    "slimit": 500,
+    "type": "instant",
+}
+
 
 def list_my_mongodb_bizs(username: str) -> List:
     res = []
-    for app in AppCache.objects.all():
+    for app in AppCache.objects.all():  # pyright: ignore[reportAttributeAccessIssue]
         bk_biz_id = app.bk_biz_id
-        if DBAdministrator.objects.filter(
+        if DBAdministrator.objects.filter(  # pyright: ignore[reportAttributeAccessIssue]
             bk_biz_id=bk_biz_id, users__0=username, db_type=DBType.MongoDB.value
         ).exists():
             res.append({"bk_biz_id": bk_biz_id, "app_name": app.bk_biz_name, "abbr": app.db_app_abbr})
@@ -30,7 +58,7 @@ def list_my_mongodb_bizs(username: str) -> List:
 
 
 def mongodb_list_clusters(bk_biz_id: int) -> List:
-    clusters = Cluster.objects.filter(
+    clusters = Cluster.objects.filter(  # pyright: ignore[reportAttributeAccessIssue]
         bk_biz_id=bk_biz_id,
         cluster_type__in=[ClusterType.MongoReplicaSet, ClusterType.MongoShardedCluster],
     )
@@ -88,8 +116,103 @@ def get_machine_stats(all_machine_ids) -> Dict:
     return machine_distribution
 
 
+def get_mongodb_meta_from_ts_metric(conds: Dict) -> Dict:
+    """
+    从监控指标 bkmonitor:dbm_system:cpu_summary:usage 的 label 中解析出 (cluster_domain, bk_target_ip, instance_role)，
+    再用 DBM 元数据补全 cluster_name、cluster_id、port、bk_biz_id、app_name、shard 等。
+
+    conds 支持：
+        - cluster_domain: 集群域名，仅查询该集群
+        - ip: 主机 IP，仅查询该 IP 上的实例
+        - instance_port: 可选，与 ip 一起时过滤指定端口（通过 DBM 元数据过滤）
+    """
+    # mongodb_types = [ClusterType.MongoReplicaSet.value, ClusterType.MongoShardedCluster.value]
+    group_by_keys = [
+        "cluster_domain", "bk_target_ip", "instance_role", "shard", "instance_port",
+        "cluster_type", "instance_host", "instance",
+    ]
+    label_filters = []
+    if conds.get("cluster_domain"):
+        label_filters.append(f'cluster_domain="{conds["cluster_domain"]}"')
+    if conds.get("ip"):
+        label_filters.append(f'bk_target_ip="{conds["ip"]}"')
+    label_str = ",".join(label_filters) if label_filters else ""
+    promql = (
+        f'max by ({",".join(group_by_keys)}) '
+        f'(max_over_time(bkmonitor:dbm_system:cpu_summary:usage{{{label_str}}}[5m]))'
+    )
+    params = copy.deepcopy(_UNIFY_QUERY_META_PARAMS)
+    params["bk_biz_id"] = env.DBA_APP_BK_BIZ_ID
+    end_ts = int(time.time())
+    params["start_time"] = end_ts - 300
+    params["end_time"] = end_ts
+    params["query_configs"][0]["promql"] = promql
+
+    try:
+        resp = BKMonitorV3Api.unify_query(params)
+    except Exception as e:
+        logger.exception("get_mongodb_meta_from_ts_metric unify_query error: %s", e)
+        return {"meta_list": [], "error": str(e)}
+
+    series = resp.get("series", [])
+    meta_list = []
+
+    for s in series:
+        dims = s.get("dimensions") or s.get("group_keys") or s.get("metric") or {}
+        cluster_domain = dims.get("cluster_domain")
+        bk_target_ip = dims.get("bk_target_ip")
+        instance_role = dims.get("instance_role", "")
+        instance_port = dims.get("instance_port", "")
+        instance = dims.get("instance", "") or f"{bk_target_ip}:{instance_port}"
+        instance_host = dims.get("instance_host", "") or f"{bk_target_ip}"
+        cluster_type = dims.get("cluster_type", "")
+        shard = dims.get("shard", "")
+        meta_list.append({
+            "cluster_domain": cluster_domain,
+            "cluster_type": cluster_type,
+            "bk_target_ip": bk_target_ip,
+            "instance_port": instance_port,
+            "instance_role": instance_role,
+            "instance_host": instance_host,
+            "instance": instance,
+            "shard": shard,
+        })
+
+    return {"meta_list": meta_list, "error": ""}
+
+
+def meta_info(value: str) -> Dict:
+    """
+    根据输入的值，返回对应的元信息（从 TS 指标 bkmonitor:dbm_system:cpu_summary:usage 的 label 解析，再以 DBM 元数据补全）。
+
+    value 支持：
+        - IP：如 "11.177.156.201"
+        - IP:PORT：如 "11.177.156.201:50005"
+        - 集群域名：如 "mongo.xxx.db"（含点号）
+    """
+    try:
+        conds = {}
+        if value is None:
+            return {"meta_list": [], "error": "value is None"}
+        value = (value or "").strip()
+        if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", value):
+            conds["ip"] = value
+        elif re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{1,5}$", value):
+            ip, port = value.split(":", 1)
+            conds["instance"] = f"{ip}:{port}"
+        elif "." in value:
+            conds["cluster_domain"] = value
+        else:
+            return {"meta_list": [], "error": "Invalid value"}
+        return get_mongodb_meta_from_ts_metric(conds)
+    except Exception as e:
+        return {"meta_list": [], "error": f"查询 MongoDB 实例的元数据信息时出错: {str(e)}"}
+
+
 def cluster_overview(immute_domain: str) -> Dict:
-    cluster_obj = Cluster.objects.prefetch_related("tags").get(immute_domain=immute_domain)
+    cluster_obj = Cluster.objects.prefetch_related("tags").get(  # pyright: ignore[reportAttributeAccessIssue]
+        immute_domain=immute_domain
+    )
     stats = {
         "bk_cloud_id": cluster_obj.bk_cloud_id,
         "bk_biz_id": cluster_obj.bk_biz_id,

@@ -28,7 +28,7 @@ from backend.dbm_aiagent.mcp_tools.views import McpToolsViewSet
 from backend.iam_app.handlers.drf_perm.base import RejectPermission
 
 
-class MongoQueryStatusMcpToolsViewSet(McpToolsViewSet):
+class MongoStatusMcpToolsViewSet(McpToolsViewSet):
     default_permission_class = [RejectPermission()]
 
     @mcp_tools_api_decorator(
@@ -36,8 +36,8 @@ class MongoQueryStatusMcpToolsViewSet(McpToolsViewSet):
         request_slz=MongoInstanceInputSerializer,
         response_slz=MongoServerStatusSerializer,
         tags=[DBMMCPTags.READ],
-        mcp=[DBMMcpTools.MONGODB_QUERY_STATUS],
-        name_prefix="mongodb_query_status",
+        mcp=[DBMMcpTools.MONGODB_STATUS],
+        name_prefix=DBMMcpTools.MONGODB_STATUS,
     )
     def get_server_status(self, request, *args, **kwargs):
         mongo_addr = self.get_param("mongo_addr")
@@ -49,8 +49,8 @@ class MongoQueryStatusMcpToolsViewSet(McpToolsViewSet):
         request_slz=MongoClusterInputSerializer,
         response_slz=MongoClusterTopologyTextSerializer,
         tags=[DBMMCPTags.READ],
-        mcp=[DBMMcpTools.MONGODB_QUERY_STATUS],
-        name_prefix="mongodb_query_status",
+        mcp=[DBMMcpTools.MONGODB_STATUS],
+        name_prefix=DBMMcpTools.MONGODB_STATUS,
     )
     def get_cluster_topology(self, request, *args, **kwargs):
         immute_domain = self.get_param("immute_domain")

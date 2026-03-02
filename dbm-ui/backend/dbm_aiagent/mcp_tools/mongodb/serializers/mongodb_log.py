@@ -11,21 +11,39 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 
-class MongoSlowlogInputSerializer(serializers.Serializer):
-    """MongoDB慢查询输入序列化器"""
+class MongoSlowlogOverviewInputSerializer(serializers.Serializer):
+    """MongoDB 慢查询按 ns/queryHash 聚合概览输入（cluster_domain、instance_host、instance 至少填其一）"""
 
+    cluster_domain = serializers.CharField(required=False, allow_blank=True, default="", help_text=_("集群域名"))
+    instance_host = serializers.CharField(required=False, allow_blank=True, default="", help_text=_("实例主机"))
+    instance = serializers.CharField(required=False, allow_blank=True, default="", help_text=_("实例"))
     start_time = serializers.DateTimeField(help_text=_("开始时间"))
     end_time = serializers.DateTimeField(help_text=_("结束时间"))
-    immute_domain = serializers.CharField(help_text=_("集群域名"))
+
+    def validate(self, attrs):
+        if not (attrs.get("cluster_domain") or attrs.get("instance_host") or attrs.get("instance")):
+            raise serializers.ValidationError(
+                _("cluster_domain, instance_host and instance cannot all be empty")
+            )
+        return attrs
 
 
-class MongoSlowlog4HostInputSerializer(serializers.Serializer):
-    """MongoDB慢查询按主机输入序列化器"""
+class MongoSlowlogListInputSerializer(serializers.Serializer):
+    """MongoDB 慢查询列表输入（cluster_domain 与 instance 至少填其一）"""
 
+    cluster_domain = serializers.CharField(required=False, allow_blank=True, default="", help_text=_("集群域名"))
+    instance = serializers.CharField(required=False, allow_blank=True, default="", help_text=_("实例"))
     start_time = serializers.DateTimeField(help_text=_("开始时间"))
     end_time = serializers.DateTimeField(help_text=_("结束时间"))
-    immute_domain = serializers.CharField(help_text=_("集群域名"))
-    ip = serializers.CharField(help_text=_("主机IP"))
+    ns = serializers.CharField(required=False, allow_blank=True, default="", help_text=_("命名空间过滤"))
+    queryHash = serializers.CharField(required=False, allow_blank=True, default="", help_text=_("queryHash 过滤"))
+
+    def validate(self, attrs):
+        if not (attrs.get("cluster_domain") or attrs.get("instance")):
+            raise serializers.ValidationError(
+                _("cluster_domain and instance cannot both be empty")
+            )
+        return attrs
 
 
 class MongoSlowlogEntrySerializer(serializers.Serializer):
@@ -37,6 +55,7 @@ class MongoSlowlogEntrySerializer(serializers.Serializer):
     ns = serializers.CharField(help_text=_("命名空间"))
     instance_addr = serializers.CharField(help_text=_("实例地址"))
     instance_role = serializers.CharField(help_text=_("实例角色"))
+    queryHash = serializers.CharField(required=False, allow_blank=True, default="", help_text=_("queryHash"))
 
 
 class MongoSlowlogResponseSerializer(serializers.Serializer):
@@ -46,46 +65,10 @@ class MongoSlowlogResponseSerializer(serializers.Serializer):
     slowlog_entries = MongoSlowlogEntrySerializer(many=True, help_text=_("慢查询日志列表"))
 
 
-class DurationStatsSerializer(serializers.Serializer):
-    """耗时统计信息"""
+class MongoSlowlogOverviewResponseSerializer(serializers.Serializer):
+    """MongoDB 慢查询按 ns/queryHash 聚合概览响应"""
 
-    max_ms = serializers.FloatField(help_text=_("最大耗时（毫秒）"))
-    min_ms = serializers.FloatField(help_text=_("最小耗时（毫秒）"))
-    avg_ms = serializers.FloatField(help_text=_("平均耗时（毫秒）"))
-    median_ms = serializers.FloatField(help_text=_("中位数耗时（毫秒）"))
-
-
-class SlowestQuerySerializer(serializers.Serializer):
-    """最慢查询信息"""
-
-    op = serializers.CharField(help_text=_("操作类型"))
-    ns = serializers.CharField(help_text=_("命名空间"))
-    duration_ms = serializers.FloatField(help_text=_("耗时（毫秒）"))
-    create_time = serializers.CharField(help_text=_("执行时间"))
-
-
-class InstanceStatsSerializer(serializers.Serializer):
-    """实例维度统计信息"""
-
-    total_count = serializers.IntegerField(help_text=_("慢日志总条数"))
-    duration_stats = DurationStatsSerializer(help_text=_("耗时统计"))
-    top_ops = serializers.DictField(child=serializers.IntegerField(), help_text=_("Top操作列表"))
-    slowest_query = SlowestQuerySerializer(help_text=_("最慢查询"))
-
-
-class SummaryStatsSerializer(serializers.Serializer):
-    """全局统计摘要"""
-
-    total_count = serializers.IntegerField(help_text=_("总记录数"))
-    instance_count = serializers.IntegerField(help_text=_("实例数量"))
-    duration_stats = DurationStatsSerializer(help_text=_("耗时统计"))
-    top_ops = serializers.DictField(child=serializers.IntegerField(), help_text=_("Top操作列表"))
-
-
-class MongoSlowClusterStaticSerializer(serializers.Serializer):
-    """MongoDB慢查询分析结果（完整输出）"""
-
-    summary = SummaryStatsSerializer(help_text=_("全局统计摘要"))
-    by_instance = serializers.DictField(
-        child=InstanceStatsSerializer(), help_text=_("按实例维度统计（实例地址: 统计信息）")
+    by_ns = serializers.DictField(
+        child=serializers.DictField(child=serializers.IntegerField()),
+        help_text=_("按命名空间分桶，每桶内 queryHash -> 条数"),
     )

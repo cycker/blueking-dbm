@@ -9,20 +9,28 @@ specific language governing permissions and limitations under the License.
 """
 from rest_framework.routers import DefaultRouter
 
-from backend.dbm_aiagent.mcp_tools.mongodb.views.job import MongoJobMcpToolsViewSet
-from backend.dbm_aiagent.mcp_tools.mongodb.views.mongodb_bill_mcp import MongoBillMcpToolsViewSet
-from backend.dbm_aiagent.mcp_tools.mongodb.views.query_alarm import MongoQueryALARMMcpToolsViewSet
-from backend.dbm_aiagent.mcp_tools.mongodb.views.query_log import MongoQueryLogMcpToolsViewSet
-from backend.dbm_aiagent.mcp_tools.mongodb.views.query_meta import MongoQueryMetaMcpToolsViewSet
-from backend.dbm_aiagent.mcp_tools.mongodb.views.query_status import MongoQueryStatusMcpToolsViewSet
+# from backend.dbm_aiagent.mcp_tools.mongodb.views.job import MongoJobMcpToolsViewSet
+# from backend.dbm_aiagent.mcp_tools.mongodb.views.mongodb_bill_mcp import MongoBillMcpToolsViewSet
+from backend.dbm_aiagent.mcp_tools.mongodb.views.query_alarm import MongoAlarmMcpToolsViewSet
+from backend.dbm_aiagent.mcp_tools.mongodb.views.query_log import MongoLogMcpToolsViewSet
+from backend.dbm_aiagent.mcp_tools.mongodb.views.query_meta import MongoMetaMcpToolsViewSet
+# from backend.dbm_aiagent.mcp_tools.mongodb.views.query_status import MongoQueryStatusMcpToolsViewSet
+from backend.dbm_aiagent.mcp_tools.mongodb.views.query_metrics import MongoMetricsMcpToolsViewSet
+from backend.dbm_aiagent.mcp_tools.mongodb.views.query_time import MongoSystemMcpToolsViewSet
 
 routers = DefaultRouter(trailing_slash=True)
 
-routers.register(r"", MongoQueryMetaMcpToolsViewSet, basename="mcp-mongodb-query-meta")
-routers.register(r"", MongoQueryStatusMcpToolsViewSet, basename="mcp-mongodb-query-status")
-routers.register(r"", MongoBillMcpToolsViewSet, basename="mcp-mongodb-bill")
-routers.register(r"", MongoJobMcpToolsViewSet, basename="mcp-mongodb-job")
-routers.register(r"", MongoQueryLogMcpToolsViewSet, basename="mcp-mongodb-query-log")
-routers.register(r"", MongoQueryALARMMcpToolsViewSet, basename="mcp-mongodb-query-alarms")
+# routers.register(r"", MongoQueryStatusMcpToolsViewSet, basename="mcp-mongodb-query-status")
+# routers.register(r"", MongoBillMcpToolsViewSet, basename="mcp-mongodb-bill")
+# routers.register(r"", MongoJobMcpToolsViewSet, basename="mcp-mongodb-job")
+routers.register(r"", MongoMetaMcpToolsViewSet, basename="mcp-mongodb-meta")
+routers.register(r"", MongoLogMcpToolsViewSet, basename="mcp-mongodb-log")
+routers.register(r"", MongoAlarmMcpToolsViewSet, basename="mcp-mongodb-alarm")
+routers.register(r"", MongoSystemMcpToolsViewSet, basename="mcp-mongodb-system")
+routers.register(r"", MongoMetricsMcpToolsViewSet, basename="mcp-mongodb-metrics")
+
+# Meta, Log, Alarm, Metric 相关接口
+# Job, Bill, Query, Status 相关接口暂不支持
+# Time 相关接口支持
 
 urlpatterns = routers.urls

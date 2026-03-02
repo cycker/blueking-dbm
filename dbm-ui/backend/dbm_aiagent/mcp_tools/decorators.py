@@ -77,6 +77,7 @@ def mcp_tools_api_decorator(
     match_subpath: bool = False,
     user_verified_required: bool = False,
     app_verified_required: bool = True,
+    none_schema: bool = False,
 ):
     """
     MCP 工具 API 装饰器
@@ -96,6 +97,7 @@ def mcp_tools_api_decorator(
     @params match_subpath: 匹配所有子路径
     @params user_verified_required: 是否校验用户身份(考虑 mcp 也有后台调用，默认都已应用态接口开放)
     @params app_verified_required: 是否校验应用身份
+    @params none_schema: 无请求体时设为 True，供 generate_resources_yaml 的 MCP 校验通过
     @returns 装饰器函数
     """
 
@@ -129,6 +131,7 @@ def mcp_tools_api_decorator(
             exclude=False,
             extensions=gen_apigateway_resource_config(
                 enable_mcp=True,  # 固定为 True
+                none_schema=none_schema,
                 is_public=is_public,
                 allow_apply_permission=allow_apply_permission,
                 user_verified_required=user_verified_required,
