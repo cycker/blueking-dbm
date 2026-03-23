@@ -73,7 +73,6 @@ class MongoRestoreFlow(MongoBaseFlow):
         self.check_payload()
 
     def check_payload(self):
-        print("payload", self.payload)
         s = self.Serializer(data=self.payload)
         if not s.is_valid():
             raise Exception("payload is invalid {}".format(s.errors))

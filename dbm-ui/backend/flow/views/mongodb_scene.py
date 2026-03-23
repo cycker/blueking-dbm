@@ -99,6 +99,21 @@ class MongoPitrRestoreApiView(FlowTestView):
         return Response({"root_id": root_id})
 
 
+class MongoUpgradeVersionApiView(FlowTestView):
+    """
+    Mongo UpgradeVersion Api
+    """
+
+    @staticmethod
+    def post(request):
+        """
+        mongo_upgrade_version
+        """
+        root_id = uuid.uuid1().hex
+        MongoDBController(root_id=root_id, ticket_data=request.data).mongo_upgrade_version()
+        return Response({"root_id": root_id})
+
+
 class MongoInstallDbmonApiView(FlowTestView):
     """
     Mongo InstallDbmon Api
