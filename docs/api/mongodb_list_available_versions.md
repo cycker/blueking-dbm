@@ -143,6 +143,12 @@ curl -sS -G "https://{host}/apis/mongodb/bizs/2/toolbox/list_available_versions/
 - 多集群时若任一线交集为空，该线不出现在 `data` 中；若全部线均无交集，返回 **`data: []`**（除非在单集群计算时已因版本不支持而校验失败）。
 - **已移除**查询参数 `upgrade_type`；行为为上述「同线补丁 + 链上更高线全量」的统一逻辑。
 
+## 相关运维文档
+
+- [MongoDB 运维指南（蓝鲸 DBM）](../operations/mongodb-ops-guide.md)（版本与介质、工单全景）
+- [MongoDB bk-dbmon 使用指引](../operations/mongodb-bk-dbmon-guide.md)
+- [MongoDB 2.4～8.0 版本特性概览](../operations/mongodb-version-features-2.4-8.md)
+
 ## 变更说明（与历史文档对比）
 
 - 请求：不再支持 `upgrade_type`（`major` / `minor`）。
