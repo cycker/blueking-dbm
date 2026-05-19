@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第 10 章 · 业务案例集 | MongoDB 手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css?v=20260518b" />
+<style>
+  /* ============== 案例专属样式 ============== */
+  .filter-bar{
+    display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+    padding:12px 14px;background:var(--card);border:1px solid var(--border);
+    border-radius:14px;margin-bottom:16px;box-shadow:var(--shadow);
+    position:sticky;top:calc(var(--topbar-h) + 6px);z-index:30;
+    backdrop-filter:blur(12px) saturate(140%);
+  }
+  .filter-bar .lbl{
+    font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:1.2px;
+    margin-right:4px;font-weight:700;
+  }
+  .chip{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:6px 12px;border-radius:999px;font-size:12.5px;cursor:pointer;
+    background:#0c1730aa;border:1px solid var(--border);color:#cbd5e1;
+    user-select:none;transition:all .2s ease;font-family:inherit;
+  }
+  .chip:hover{background:#152347cc;color:#fff;border-color:#2a3b62;transform:translateY(-1px)}
+  .chip.active{
+    background:linear-gradient(135deg,#22d3ee,#a78bfa);
+    border-color:transparent;color:#06202a;font-weight:700;
+    box-shadow:0 6px 16px rgba(34,211,238,.3);
+  }
+  .chip .cnt{
+    background:rgba(255,255,255,.18);padding:1px 7px;border-radius:999px;font-size:11px;
+    font-family:JetBrains Mono,monospace;
+  }
+  .chip.active .cnt{background:rgba(11,18,32,.25)}
+
+  .filter-search{
+    flex:1;min-width:180px;display:flex;align-items:center;gap:8px;
+    background:#0c1730aa;border:1px solid var(--border);border-radius:10px;
+    padding:6px 12px;
+  }
+  .filter-search input{
+    flex:1;background:transparent;border:none;outline:none;
+    color:var(--text);font-size:13px;font-family:inherit;
+  }
+
+  /* 案例网格 */
+  .case-grid{
+    display:grid;grid-template-columns:repeat(auto-fill, minmax(360px,1fr));gap:14px;
+  }
+  .case-card{
+    background:var(--card);border:1px solid var(--border);border-radius:14px;
+    overflow:hidden;transition:all .25s ease;position:relative;
+    display:flex;flex-direction:column;
+  }
+  .case-card::before{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(500px 200px at 0% 0%, var(--glow,rgba(34,211,238,.12)), transparent 60%);
+  }
+  .case-card:hover{transform:translateY(-3px);border-color:#2a3b62;box-shadow:0 16px 40px rgba(0,0,0,.45)}
+  .case-card.hidden{display:none}
+
+  .case-head{
+    padding:14px 16px 10px;display:flex;gap:10px;align-items:flex-start;
+    border-bottom:1px solid var(--border);position:relative;
+  }
+  .case-id{
+    flex:0 0 auto;width:38px;height:38px;border-radius:10px;
+    background:linear-gradient(135deg,rgba(34,211,238,.18),rgba(167,139,250,.18));
+    border:1px solid rgba(167,139,250,.35);
+    display:grid;place-items:center;font-family:JetBrains Mono,monospace;
+    font-size:13px;font-weight:700;color:#a5f3fc;
+  }
+  .case-head h4{
+    margin:0;font-size:14.5px;font-weight:700;line-height:1.4;color:#fff;
+    flex:1;
+  }
+  .case-tags{
+    display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;
+  }
+  .case-tags .pill{font-size:10.5px;padding:2px 8px}
+
+  .case-body{padding:12px 16px 14px;flex:1;display:flex;flex-direction:column}
+  .case-meta{
+    display:flex;flex-wrap:wrap;gap:10px;font-size:11.5px;color:var(--muted);
+    margin-bottom:8px;
+  }
+  .case-meta .m-item{display:inline-flex;align-items:center;gap:4px}
+  .case-meta code{font-size:11px;padding:0 5px}
+
+  .case-summary{
+    color:#cbd5e1;font-size:13px;line-height:1.65;margin:4px 0 10px;flex:1;
+  }
+  .case-summary b{color:#fff}
+
+  .case-footer{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding-top:8px;border-top:1px dashed var(--border);
+  }
+  .case-toggle{
+    background:transparent;border:1px solid var(--border);color:#cbd5e1;
+    padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;
+    font-family:inherit;transition:all .2s ease;
+  }
+  .case-toggle:hover{background:#152347aa;color:#fff;border-color:#2a3b62}
+  .case-iwiki{font-size:11.5px}
+
+  /* 详情区 */
+  .case-detail{
+    display:none;border-top:1px solid var(--border);
+    padding:14px 16px;background:rgba(7,12,24,.55);
+    animation:fade .25s ease;
+  }
+  .case-detail.show{display:block}
+  .case-detail h5{
+    margin:10px 0 6px;font-size:12.5px;font-weight:700;color:#e2e8f0;
+    text-transform:uppercase;letter-spacing:1px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .case-detail h5:first-child{margin-top:0}
+  .case-detail h5::before{
+    content:"";width:3px;height:12px;border-radius:2px;
+    background:linear-gradient(180deg,var(--accent),var(--accent-2));
+  }
+  .case-detail p{margin:4px 0;color:#cbd5e1;font-size:13px;line-height:1.7}
+  .case-detail ul{margin:4px 0;padding-left:20px;color:#cbd5e1;font-size:13px}
+  .case-detail li{margin:3px 0;line-height:1.65}
+  .case-detail pre{margin:8px 0;font-size:12px}
+  .case-detail .takeaway{
+    background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.32);
+    padding:10px 14px;border-radius:10px;margin-top:10px;
+    display:flex;gap:10px;align-items:flex-start;font-size:12.5px;
+  }
+  .case-detail .takeaway .ico{font-size:16px;flex:0 0 auto}
+  .case-detail .takeaway b{color:#bbf7d0;display:block;margin-bottom:2px;font-size:11.5px;letter-spacing:.5px;text-transform:uppercase}
+
+  /* 主题分组栏 */
+  .theme-tabs{
+    display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 12px;
+  }
+  .theme-tab{
+    padding:7px 14px;border-radius:10px;font-size:13px;cursor:pointer;
+    color:#cbd5e1;background:#0f1a30aa;border:1px solid var(--border);
+    user-select:none;transition:all .2s ease;font-family:inherit;
+    display:inline-flex;align-items:center;gap:7px;
+  }
+  .theme-tab:hover{color:#fff;border-color:#2a3b62}
+  .theme-tab.active{
+    background:linear-gradient(135deg,rgba(34,211,238,.16),rgba(167,139,250,.16));
+    color:#fff;border-color:rgba(167,139,250,.4);box-shadow:0 4px 12px rgba(0,0,0,.3);
+  }
+
+  .empty{
+    text-align:center;padding:60px 20px;color:var(--muted);
+    background:var(--card);border:1px dashed var(--border);border-radius:14px;
+  }
+  .empty .big{font-size:48px;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <main class="main">
+
+    <nav class="crumb">
+      <a href="../../index.html">🏠 首页</a><span class="sep">/</span>
+      <span>第 10 章</span><span class="sep">/</span>
+      <span style="color:#cbd5e1">业务案例集</span>
+    </nav>
+
+    <h1 class="page-title">第 10 章 · 业务案例集（IegMongoTeam 实战）</h1>
+    <p class="page-lead">
+      汇总来自 <strong>IegMongoTeam iWiki 知识库</strong> 的真实业务案例，按
+      <strong>故障 / 性能 / 拓扑 / 备份回档 / 迁移扩缩容 / 工具 / 单据指引</strong>
+      七大主题分类。每个案例都包含 <em>背景 → 现象 → 定位 → 解决 → 经验</em> 五段式，便于按图索骥。
+    </p>
+
+    <!-- 仪表盘 -->
+    <section class="grid col-4" style="margin-bottom:14px">
+      <div class="stat"><div class="ico">📂</div><div><div class="num" id="stCount">22</div><div class="lbl">案例总数</div></div></div>
+      <div class="stat"><div class="ico">🐛</div><div><div class="num">7</div><div class="lbl">Bug & 故障</div></div></div>
+      <div class="stat"><div class="ico">🐌</div><div><div class="num">5</div><div class="lbl">性能 / 慢查询</div></div></div>
+      <div class="stat"><div class="ico">🚚</div><div><div class="num">10</div><div class="lbl">迁移 / 备份 / 单据</div></div></div>
+    </section>
+
+    <!-- 主题分组 -->
+    <div class="theme-tabs" id="themeTabs">
+      <button class="theme-tab active" data-theme="all">📚 全部</button>
+      <button class="theme-tab" data-theme="bug">🐛 Bug &amp; 故障</button>
+      <button class="theme-tab" data-theme="perf">🐌 性能 / 慢查询</button>
+      <button class="theme-tab" data-theme="topo">🧱 拓扑 / 分片</button>
+      <button class="theme-tab" data-theme="backup">💾 备份 / 回档</button>
+      <button class="theme-tab" data-theme="migrate">🚚 迁移 / 扩缩容</button>
+      <button class="theme-tab" data-theme="tool">🛠 工具集</button>
+      <button class="theme-tab" data-theme="ops">📋 单据指引</button>
+    </div>
+
+    <!-- 筛选栏 -->
+    <div class="filter-bar">
+      <span class="lbl">📌 版本</span>
+      <button class="chip ver active" data-ver="all">全部 <span class="cnt" id="cVerAll">22</span></button>
+      <button class="chip ver" data-ver="2.4">2.4</button>
+      <button class="chip ver" data-ver="3.6">3.6</button>
+      <button class="chip ver" data-ver="4.0">4.0</button>
+      <button class="chip ver" data-ver="4.2">4.2</button>
+      <button class="chip ver" data-ver="4.4">4.4+</button>
+
+      <span class="lbl" style="margin-left:12px">⚠ 严重程度</span>
+      <button class="chip sev active" data-sev="all">全部</button>
+      <button class="chip sev" data-sev="P0">P0 紧急</button>
+      <button class="chip sev" data-sev="P1">P1 高</button>
+      <button class="chip sev" data-sev="P2">P2 中</button>
+
+      <div class="filter-search">
+        🔍
+        <input id="caseSearch" placeholder="搜索关键词：业务名 / 报错 / 现象 / 工单..." />
+      </div>
+    </div>
+
+    <!-- 案例网格 -->
+    <div class="case-grid" id="caseGrid"></div>
+
+    <div class="empty" id="emptyTip" style="display:none">
+      <div class="big">🤷</div>
+      <div>没有匹配的案例，换个关键词试试？</div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../assets/app.js?v=20260518b"></script>
+<script src="../assets/cases-data.js"></script>
+<script>
+HandbookInit({ activeId:'ch10' });
+
+// ====== 案例渲染 + 筛选 + 搜索 ======
+(function(){
+  const cases = window.HANDBOOK_CASES || [];
+  const grid = document.getElementById('caseGrid');
+  const empty = document.getElementById('emptyTip');
+  const searchInp = document.getElementById('caseSearch');
+
+  let theme = 'all', ver = 'all', sev = 'all', kw = '';
+
+  function pillClass(s){
+    return ({P0:'red',P1:'amber',P2:'cyan'})[s] || '';
+  }
+  function themePill(t){
+    const map = {
+      bug:{c:'red',t:'🐛 故障'},
+      perf:{c:'amber',t:'🐌 性能'},
+      topo:{c:'violet',t:'🧱 拓扑'},
+      backup:{c:'green',t:'💾 备份'},
+      migrate:{c:'cyan',t:'🚚 迁移'},
+      tool:{c:'pink',t:'🛠 工具'},
+      ops:{c:'',t:'📋 单据'},
+    };
+    return map[t] || {c:'',t:t};
+  }
+  function glowOf(t){
+    return ({
+      bug:'rgba(248,113,113,.18)',
+      perf:'rgba(245,158,11,.18)',
+      topo:'rgba(167,139,250,.18)',
+      backup:'rgba(52,211,153,.18)',
+      migrate:'rgba(34,211,238,.18)',
+      tool:'rgba(244,114,182,.18)',
+      ops:'rgba(148,163,184,.18)',
+    })[t] || 'rgba(34,211,238,.12)';
+  }
+
+  function render(){
+    let visible = 0;
+    grid.innerHTML = cases.map((c, i)=>{
+      const tp = themePill(c.theme);
+      const sevP = pillClass(c.severity);
+      const matchTheme = (theme === 'all' || c.theme === theme);
+      const matchVer = (ver === 'all' || (c.versions||[]).some(v=>v.startsWith(ver)));
+      const matchSev = (sev === 'all' || c.severity === sev);
+      const hay = (c.title + ' ' + (c.biz||'') + ' ' + c.summary + ' ' + (c.tags||[]).join(' ') + ' ' + (c.detail?.cause||'')+' '+(c.detail?.fix||'')).toLowerCase();
+      const matchKw = !kw || hay.includes(kw.toLowerCase());
+      const show = matchTheme && matchVer && matchSev && matchKw;
+      if (show) visible++;
+
+      const tagsHtml = (c.tags||[]).map(t=>`<span class="pill">${t}</span>`).join('');
+      const verHtml = (c.versions||[]).map(v=>`<span class="m-item">📦 <code>${v}</code></span>`).join('');
+      const bizHtml = c.biz ? `<span class="m-item">🏢 ${c.biz}</span>` : '';
+      const yearHtml = c.year ? `<span class="m-item">📅 ${c.year}</span>` : '';
+      const sevHtml = c.severity ? `<span class="pill ${sevP}">${c.severity}</span>` : '';
+
+      const d = c.detail || {};
+      const detailHtml = `
+        ${d.bg ? `<h5>📖 背景</h5><p>${d.bg}</p>` : ''}
+        ${d.symptom ? `<h5>🔎 现象</h5>${d.symptom}` : ''}
+        ${d.cause ? `<h5>🧪 定位 / 原因</h5>${d.cause}` : ''}
+        ${d.fix ? `<h5>🛠 解决方案</h5>${d.fix}` : ''}
+        ${d.takeaway ? `<div class="takeaway"><div class="ico">💡</div><div><b>经验</b>${d.takeaway}</div></div>` : ''}
+      `;
+
+      return `
+        <article class="case-card ${show?'':'hidden'}" style="--glow:${glowOf(c.theme)}">
+          <div class="case-head">
+            <div class="case-id">#${String(i+1).padStart(2,'0')}</div>
+            <div style="flex:1">
+              <h4>${c.title}</h4>
+              <div class="case-tags">
+                <span class="pill ${tp.c}">${tp.t}</span>
+                ${sevHtml}
+                ${tagsHtml}
+              </div>
+            </div>
+          </div>
+          <div class="case-body">
+            <div class="case-meta">
+              ${bizHtml}${yearHtml}${verHtml}
+            </div>
+            <div class="case-summary">${c.summary}</div>
+            <div class="case-footer">
+              <button class="case-toggle" data-i="${i}">📖 查看详情</button>
+              ${c.iwiki ? `<a class="case-iwiki" href="${c.iwiki}" target="_blank" rel="noopener">iWiki ↗</a>` : ''}
+            </div>
+            <div class="case-detail" id="cd-${i}">${detailHtml}</div>
+          </div>
+        </article>
+      `;
+    }).join('');
+
+    // 绑定折叠
+    grid.querySelectorAll('.case-toggle').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const i = btn.dataset.i;
+        const dt = document.getElementById('cd-'+i);
+        dt.classList.toggle('show');
+        btn.textContent = dt.classList.contains('show') ? '➖ 收起详情' : '📖 查看详情';
+      });
+    });
+
+    document.getElementById('stCount').textContent = visible;
+    empty.style.display = visible ? 'none' : 'block';
+  }
+
+  document.getElementById('themeTabs').addEventListener('click', e=>{
+    const b = e.target.closest('.theme-tab'); if (!b) return;
+    document.querySelectorAll('.theme-tab').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); theme = b.dataset.theme; render();
+  });
+  document.querySelectorAll('.chip.ver').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('.chip.ver').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); ver = b.dataset.ver; render();
+  }));
+  document.querySelectorAll('.chip.sev').forEach(b=>b.addEventListener('click',()=>{
+    document.querySelectorAll('.chip.sev').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); sev = b.dataset.sev; render();
+  }));
+  searchInp.addEventListener('input', e=>{ kw = e.target.value.trim(); render(); });
+
+  render();
+})();
+</script>
+</body>
+</html>

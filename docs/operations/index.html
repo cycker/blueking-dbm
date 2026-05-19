@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MongoDB 入门与运维手册 · 蓝鲸 DBM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="handbook/assets/style.css?v=20260518b" />
+</head>
+<body>
+
+<!-- =====================================================
+     PPT 模板（默认隐藏，点击「🎬 进入 PPT 模式」时被克隆并挂载）
+     ===================================================== -->
+<template id="homeDeckTpl">
+  <div class="deck" id="homeDeck">
+    <div class="deck-stage">
+
+      <!-- Slide 1 · 封面 -->
+      <section class="slide cover active">
+        <div class="slide-tag">蓝鲸 DBM · MONGODB OPS HANDBOOK</div>
+        <h1 class="slide-title">MongoDB 入门 &amp; 运维<br/>一站式手册</h1>
+        <p class="slide-sub">
+          覆盖 <strong>概念入门 → mongosh → DBM 平台 → bk-dbmon → 版本特性 → 工具集 → 业务案例 → 索引设计</strong>，
+          面向具备 MySQL / Redis 经验的运维同学。
+        </p>
+        <div class="meta-row">
+          <span class="pill cyan">v1.3 · 中文版</span>
+          <span class="pill violet">12 章 · 95+ 小节</span>
+          <span class="pill green">30 个真实业务案例</span>
+          <span class="pill amber">2.4 → 8.0 全版本覆盖</span>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>MongoDB Handbook · Powered by 蓝鲸 DBM</span>
+          <span>2026.05 · 由 With 整理生成</span>
+        </div>
+      </section>
+
+      <!-- Slide 2 · 全书目录 -->
+      <section class="slide toc">
+        <div class="slide-tag">CONTENTS · 全书目录</div>
+        <h2 class="slide-title">📑 全书 12 章</h2>
+        <div class="slide-body">
+          <div class="toc-grid">
+            <a href="handbook/chapters/01-concepts.html"><span class="ix">1</span><span class="ttl">导读 &amp; 概念对照<span class="desc">MySQL / Redis 视角切入 MongoDB</span></span></a>
+            <a href="handbook/chapters/02-cluster-topology.html"><span class="ix">2</span><span class="ttl">DBM 集群形态<span class="desc">两类集群 + 拓扑字段速查</span></span></a>
+            <a href="handbook/chapters/03-first-deploy.html"><span class="ix">3</span><span class="ttl">首次部署 MongoDB<span class="desc">通过工单驱动安装与注册</span></span></a>
+            <a href="handbook/chapters/04-tickets.html"><span class="ix">4</span><span class="ttl">控制台 &amp; 工单全景<span class="desc">所有工单类型分组速查</span></span></a>
+            <a href="handbook/chapters/05-mongosh.html"><span class="ix">5</span><span class="ttl">mongosh Shell 入门<span class="desc">SQL ↔ MongoDB 翻译表</span></span></a>
+            <a href="handbook/chapters/06-bk-dbmon.html"><span class="ix">6</span><span class="ttl">bk-dbmon 监控守护<span class="desc">备份 / 心跳 / 健康检查</span></span></a>
+            <a href="handbook/chapters/07-versions.html"><span class="ix">7</span><span class="ttl">2.4 → 8.0 版本特性<span class="desc">运维 / 备份 / 升级影响点</span></span></a>
+            <a href="handbook/chapters/09-mongo-tools.html"><span class="ix">9</span><span class="ttl">mongodump &amp; 工具集<span class="desc">导入导出 / PITR / 合服迁移</span></span></a>
+            <a href="handbook/chapters/10-cases.html"><span class="ix">10</span><span class="ttl">业务案例集<span class="desc">30 例真实故障与排障</span></span></a>
+            <a href="handbook/chapters/11-uri-readpref.html"><span class="ix">11</span><span class="ttl">URI &amp; readPreference<span class="desc">连接串 5 种读偏好详解</span></span></a>
+            <a href="handbook/chapters/12-indexes.html"><span class="ix">12</span><span class="ttl">索引设计与优化<span class="desc">12 类索引 + ESR 黄金法则</span></span></a>
+            <a href="handbook/chapters/08-appendix.html"><span class="ix">A</span><span class="ttl">附录 · 排障 / FAQ<span class="desc">仓库索引 + 术语表</span></span></a>
+          </div>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>点击卡片可直接跳转到对应章节</span>
+          <span>02 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 3 · 推荐路径 -->
+      <section class="slide">
+        <div class="slide-tag">ROADMAP · 推荐学习路径</div>
+        <h2 class="slide-title">🧭 6 步走 · 从 0 到独立运维</h2>
+        <div class="slide-body">
+          <p class="slide-sub" style="margin-bottom:24px">从零起步的运维同学按下面 6 步顺序阅读，可在最短时间内独立完成日常运维。</p>
+          <div class="grid col-3" style="gap:14px">
+            <div class="card" style="text-align:center">
+              <div class="ico-big" style="margin:0 auto 10px">①</div>
+              <h4>概念对照</h4>
+              <div class="sub">把 MySQL / Redis 经验"翻译"过来</div>
+            </div>
+            <div class="card" style="text-align:center">
+              <div class="ico-big" style="margin:0 auto 10px">②</div>
+              <h4>集群形态</h4>
+              <div class="sub">理解副本集 vs 分片集群</div>
+            </div>
+            <div class="card" style="text-align:center">
+              <div class="ico-big" style="margin:0 auto 10px">③</div>
+              <h4>首次部署</h4>
+              <div class="sub">通过 DBM 标准化工单上线</div>
+            </div>
+            <div class="card" style="text-align:center">
+              <div class="ico-big" style="margin:0 auto 10px">④</div>
+              <h4>mongosh 入门</h4>
+              <div class="sub">登录、查询、排障三板斧</div>
+            </div>
+            <div class="card" style="text-align:center">
+              <div class="ico-big" style="margin:0 auto 10px">⑤</div>
+              <h4>工单全景</h4>
+              <div class="sub">扩缩容 / 备份 / 权限 一图流</div>
+            </div>
+            <div class="card" style="text-align:center">
+              <div class="ico-big" style="margin:0 auto 10px">⑥</div>
+              <h4>bk-dbmon</h4>
+              <div class="sub">监控守护 + 蓝鲸告警闭环</div>
+            </div>
+          </div>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>建议 ≈ 半天通读 + 1~2 周实操</span>
+          <span>03 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 4 · 第 1 章 -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 01 · 概念对照</div>
+        <h2 class="slide-title">🧠 把 MySQL/Redis 经验「翻译」过来</h2>
+        <div class="slide-body">
+          <table class="tbl">
+            <thead><tr><th style="width:24%">MongoDB 概念</th><th>类比 MySQL</th><th>类比 Redis</th></tr></thead>
+            <tbody>
+              <tr><td><code>database</code></td><td>database / schema</td><td>db 0~15</td></tr>
+              <tr><td><code>collection</code></td><td>table</td><td>—（key 命名空间）</td></tr>
+              <tr><td><code>document</code></td><td>row</td><td>value（哈希 / JSON）</td></tr>
+              <tr><td><code>field</code></td><td>column</td><td>hash field</td></tr>
+              <tr><td>副本集 ReplSet</td><td>主从 + 哨兵 / Group Replication</td><td>Sentinel</td></tr>
+              <tr><td>分片集群 Sharded Cluster</td><td>分库分表 + 中间件</td><td>Cluster（哈希槽）</td></tr>
+              <tr><td><code>oplog</code></td><td>binlog</td><td>AOF</td></tr>
+              <tr><td><code>WiredTiger</code></td><td>InnoDB</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 1 章 · 详见 <a href="handbook/chapters/01-concepts.html">01-concepts.html</a></span>
+          <span>04 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 5 · 第 2 章 -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 02 · 集群形态</div>
+        <h2 class="slide-title">🏗 蓝鲸 DBM 中的两类集群</h2>
+        <div class="slide-body">
+          <div class="grid col-2" style="gap:18px">
+            <div class="card" style="--glow:rgba(34,211,238,.18)">
+              <div class="head"><span class="pill cyan">类型 A</span><h4>MongoReplicaSet</h4></div>
+              <div class="sub">单一副本集，1×Primary + N×Secondary（+Arbiter）。适合中小业务、低延迟读写、单一数据集。</div>
+              <ul style="color:#cbd5e1;padding-left:20px;margin-top:10px;font-size:13.5px">
+                <li>典型部署：3 节点 / 5 节点</li>
+                <li>读写均通过 Primary，副本只读</li>
+                <li>支持 readPreference 路由读流量</li>
+              </ul>
+            </div>
+            <div class="card" style="--glow:rgba(167,139,250,.22)">
+              <div class="head"><span class="pill violet">类型 B</span><h4>MongoShardedCluster</h4></div>
+              <div class="sub">mongos 路由 + N 个 shard（每个 shard = ReplSet）+ ConfigServer（ReplSet）。海量数据 / 水平扩展。</div>
+              <ul style="color:#cbd5e1;padding-left:20px;margin-top:10px;font-size:13.5px">
+                <li>逻辑：mongos / config / shard 三类角色</li>
+                <li>chunks 按片键自动均衡</li>
+                <li>需提前规划 shard key（不可改）</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 2 章 · 详见 <a href="handbook/chapters/02-cluster-topology.html">02-cluster-topology.html</a></span>
+          <span>05 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 6 · 第 3 章 -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 03 · 首次部署</div>
+        <h2 class="slide-title">🚀 不要手工 mongod —— 一切走工单</h2>
+        <div class="slide-body">
+          <div class="steps">
+            <div class="step-item"><div class="n">1</div><div class="body"><h5>前置 Checklist</h5><p>资源池机器、域名、磁盘配额、版本选型 / WT 缓存、密码体系（auth + keyFile）</p></div></div>
+            <div class="step-item"><div class="n">2</div><div class="body"><h5>选择工单类型</h5><p><code>MongoDBReplicasetApply</code>（副本集）/ <code>MongoDBShardClusterApply</code>（分片）</p></div></div>
+            <div class="step-item"><div class="n">3</div><div class="body"><h5>关键参数</h5><p>cluster_name / shard_num / oplog_size_mb / cache_size_GB / 端口段</p></div></div>
+            <div class="step-item"><div class="n">4</div><div class="body"><h5>提单后跟进</h5><p>查看 Flow → 子任务 → 主机 actuator 日志，错误时点 retry / skip</p></div></div>
+            <div class="step-item"><div class="n">5</div><div class="body"><h5>交付与验活</h5><p>登录 mongosh 验 <code>rs.status()</code> / <code>sh.status()</code>，检查 bk-dbmon 是否上报心跳</p></div></div>
+          </div>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 3 章 · 详见 <a href="handbook/chapters/03-first-deploy.html">03-first-deploy.html</a></span>
+          <span>06 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 7 · 第 5 章 mongosh -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 05 · mongosh</div>
+        <h2 class="slide-title">🐚 mongosh = mongo shell 的现代版</h2>
+        <div class="slide-body">
+          <div class="grid col-2">
+            <div>
+              <h3>必会命令</h3>
+              <pre data-copy="0" style="font-size:12.5px"><code>show dbs                   <span class="tok-cmt">// 列库</span>
+use admin                  <span class="tok-cmt">// 切库</span>
+db.runCommand({ping:1})    <span class="tok-cmt">// 健康</span>
+rs.status()                <span class="tok-cmt">// 副本集</span>
+sh.status()                <span class="tok-cmt">// 分片</span>
+db.coll.find({a:1}).explain('executionStats')</code></pre>
+            </div>
+            <div>
+              <h3>SQL ↔ MongoDB 对照</h3>
+              <table class="tbl" style="font-size:12.5px">
+                <thead><tr><th>SQL</th><th>MongoDB</th></tr></thead>
+                <tbody>
+                  <tr><td>SELECT * FROM t</td><td><code>db.t.find()</code></td></tr>
+                  <tr><td>WHERE a=1 AND b&gt;2</td><td><code>{a:1, b:{$gt:2}}</code></td></tr>
+                  <tr><td>ORDER BY x DESC LIMIT 10</td><td><code>.sort({x:-1}).limit(10)</code></td></tr>
+                  <tr><td>GROUP BY</td><td><code>$group</code> in aggregate</td></tr>
+                  <tr><td>JOIN</td><td><code>$lookup</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 5 章 · 详见 <a href="handbook/chapters/05-mongosh.html">05-mongosh.html</a></span>
+          <span>07 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 8 · 第 6 章 bk-dbmon -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 06 · bk-dbmon</div>
+        <h2 class="slide-title">🛰 实例机本地守护进程</h2>
+        <div class="slide-body">
+          <p class="slide-sub" style="margin-bottom:18px">bk-dbmon 是部署在每台 mongod / mongos 主机上的 Go 守护进程，负责备份调度、心跳上报、健康检查与蓝鲸监控对接。</p>
+          <div class="grid col-3" style="gap:12px">
+            <div class="card"><div class="head"><span class="ico-big">💾</span><h4>备份</h4></div><div class="sub">mongodump + 上传备份系统，支持 archive/gzip/zstd 压缩</div></div>
+            <div class="card"><div class="head"><span class="ico-big">❤️</span><h4>心跳</h4></div><div class="sub">每分钟上报实例状态、副本延迟、磁盘水位到 DBM</div></div>
+            <div class="card"><div class="head"><span class="ico-big">🩺</span><h4>健康检查</h4></div><div class="sub">primary / connection / replication lag 巡检</div></div>
+            <div class="card"><div class="head"><span class="ico-big">📊</span><h4>监控</h4></div><div class="sub">推送指标到蓝鲸监控，统一告警入口</div></div>
+            <div class="card"><div class="head"><span class="ico-big">🔁</span><h4>自更新</h4></div><div class="sub">DBM 控制台一键升级 bk-dbmon 介质</div></div>
+            <div class="card"><div class="head"><span class="ico-big">📁</span><h4>路径</h4></div><div class="sub"><code>/data/dbbak/mg/</code> · <code>/home/mysql/bk-dbmon/</code></div></div>
+          </div>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 6 章 · 详见 <a href="handbook/chapters/06-bk-dbmon.html">06-bk-dbmon.html</a></span>
+          <span>08 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 9 · 第 9 章 工具集 -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 09 · 工具集</div>
+        <h2 class="slide-title">🛠 mongodump / mongorestore 全家桶</h2>
+        <div class="slide-body">
+          <table class="tbl">
+            <thead><tr><th style="width:22%">工具</th><th>用途</th><th>典型场景</th></tr></thead>
+            <tbody>
+              <tr><td><code>mongodump</code></td><td>逻辑备份 → BSON / archive</td><td>全量备份、合服迁移、part_bak</td></tr>
+              <tr><td><code>mongorestore</code></td><td>逻辑恢复（支持 oplogReplay）</td><td>回档、跨集群迁移、PITR</td></tr>
+              <tr><td><code>mongoexport</code></td><td>导出 JSON/CSV</td><td>给 BI / 报表系统</td></tr>
+              <tr><td><code>mongoimport</code></td><td>导入 JSON/CSV/TSV</td><td>初始化数据、批量导入</td></tr>
+              <tr><td><code>mongostat</code></td><td>实时性能指标</td><td>排障 / 容量评估</td></tr>
+              <tr><td><code>mongotop</code></td><td>各集合读写耗时</td><td>定位热点集合</td></tr>
+              <tr><td><code>mongo-toolkit-go</code></td><td>PITR / 增量 oplog</td><td>任意时间点回档</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 9 章 · 详见 <a href="handbook/chapters/09-mongo-tools.html">09-mongo-tools.html</a></span>
+          <span>09 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 10 · 第 10 章 业务案例 -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 10 · 业务案例</div>
+        <h2 class="slide-title">📚 30 个来自一线的真实案例</h2>
+        <div class="slide-body">
+          <div class="grid col-3" style="gap:12px">
+            <div class="card"><div class="head"><span class="pill red">🐛 Bug</span><h4>7 例</h4></div><div class="sub">4.2.5 KeyNotFound、tetris 单点雪崩、$or 致 ROR_CHECK 异常 ……</div></div>
+            <div class="card"><div class="head"><span class="pill amber">🐌 慢查询</span><h4>5 例</h4></div><div class="sub">partial 索引未命中、$or 改 $in 提速 100×、排序内存爆炸 ……</div></div>
+            <div class="card"><div class="head"><span class="pill violet">🧱 拓扑</span><h4>4 例</h4></div><div class="sub">vega 合服、xssh 缩容失败、chunk 不均衡 ……</div></div>
+            <div class="card"><div class="head"><span class="pill green">💾 备份</span><h4>3 例</h4></div><div class="sub">分片集群 Restore 死锁、CursorNotFound、PITR 时间漂移 ……</div></div>
+            <div class="card"><div class="head"><span class="pill cyan">🚚 迁移</span><h4>4 例</h4></div><div class="sub">跨版本 dump → restore、oplog 缝合、CLB 会话保持踩坑 ……</div></div>
+            <div class="card"><div class="head"><span class="pill">🛠 工具</span><h4>5 例</h4></div><div class="sub">part_bak 增量、mongoshake 替代方案、单据填错回滚 ……</div></div>
+          </div>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 10 章 · 详见 <a href="handbook/chapters/10-cases.html">10-cases.html</a></span>
+          <span>10 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 11 · 第 11 章 URI -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 11 · 连接 URI</div>
+        <h2 class="slide-title">🔗 连接串 &amp; readPreference 五大模式</h2>
+        <div class="slide-body">
+          <pre data-copy="0" style="font-size:12.5px;margin-bottom:14px"><code><span class="tok-kw">mongodb://</span>user:pass@h1,h2,h3/<span class="tok-fn">db</span>?<span class="tok-op">replicaSet</span>=rs0&amp;<span class="tok-op">readPreference</span>=secondaryPreferred&amp;<span class="tok-op">authSource</span>=admin&amp;<span class="tok-op">maxStalenessSeconds</span>=120</code></pre>
+          <table class="tbl" style="font-size:13px">
+            <thead><tr><th>模式</th><th>语义</th><th>适用</th></tr></thead>
+            <tbody>
+              <tr><td><code>primary</code></td><td>仅主</td><td>强一致写后读</td></tr>
+              <tr><td><code>primaryPreferred</code></td><td>优先主，主挂用从</td><td>常规读写</td></tr>
+              <tr><td><code>secondary</code></td><td>仅从</td><td>报表 / BI（容忍延迟）</td></tr>
+              <tr><td><code>secondaryPreferred</code></td><td>优先从，从挂用主</td><td>读多写少业务</td></tr>
+              <tr><td><code>nearest</code></td><td>就近（按延迟）</td><td>多机房就近读</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 11 章 · 详见 <a href="handbook/chapters/11-uri-readpref.html">11-uri-readpref.html</a></span>
+          <span>11 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 12 · 第 12 章 索引 -->
+      <section class="slide">
+        <div class="slide-tag">CHAPTER 12 · 索引</div>
+        <h2 class="slide-title">⚡ 索引 ESR 黄金法则</h2>
+        <div class="slide-body">
+          <div class="callout info">
+            <div class="ico">💡</div>
+            <div class="body">
+              <strong>复合索引字段顺序</strong>
+              <p><strong>E</strong>quality（等值条件） → <strong>S</strong>ort（排序字段） → <strong>R</strong>ange（范围条件）</p>
+              <p>遵循 ESR，能让查询走 <em>IXSCAN</em> 而不是 SORT_KEY_GENERATOR / COLLSCAN，性能可提升 10×~1000×。</p>
+            </div>
+          </div>
+          <div class="grid col-2" style="margin-top:14px;gap:14px">
+            <div class="card"><div class="head"><span class="ico-big">📚</span><h4>12 类索引家族</h4></div><div class="sub">单字段 / 复合 / 多 key / 文本 / 地理空间 / 哈希 / TTL / Wildcard / Partial / Sparse / Hidden / Unique</div></div>
+            <div class="card"><div class="head"><span class="ico-big">🩺</span><h4>索引体检 7 步</h4></div><div class="sub">explain → $indexStats → 删未用 → 验 partialFilter → planCache → covered → 分片表特殊性</div></div>
+          </div>
+        </div>
+        <div class="slide-foot">
+          <span class="brand-mini"><span class="dot"></span>第 12 章 · 详见 <a href="handbook/chapters/12-indexes.html">12-indexes.html</a></span>
+          <span>12 / 13</span>
+        </div>
+      </section>
+
+      <!-- Slide 13 · 章末 -->
+      <section class="slide outro">
+        <div>
+          <div class="slide-tag" style="text-align:center;margin-bottom:14px">END · THANKS FOR READING</div>
+          <div class="big">Thanks!</div>
+          <p class="slide-sub" style="text-align:center;margin-top:24px;font-size:18px">
+            按 <kbd style="background:#0c1730;border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:#a5f3fc;font-family:JetBrains Mono,monospace">ESC</kbd>
+            返回阅读模式　·　按
+            <kbd style="background:#0c1730;border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:#a5f3fc;font-family:JetBrains Mono,monospace">Home</kbd>
+            回到首页
+          </p>
+          <div style="display:flex;justify-content:center;gap:8px;margin-top:24px;flex-wrap:wrap">
+            <span class="pill cyan">蓝鲸 DBM</span>
+            <span class="pill violet">MongoDB</span>
+            <span class="pill green">2026.05</span>
+            <span class="pill amber">由 With 整理生成</span>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</template>
+
+<!-- =====================================================
+     默认阅读模式（保留原版章节卡片网格）
+     ===================================================== -->
+<div class="layout no-sidebar">
+  <main class="main" style="padding:28px">
+
+    <!-- HERO -->
+    <section class="hero">
+      <span class="pill cyan">v1.3 · 中文版</span>
+      <span class="pill amber" style="margin-left:6px">🎬 支持 PPT 演示模式</span>
+      <span class="pill green" style="margin-left:6px">点右下角按钮或按 P 启动</span>
+      <h1 style="margin-top:14px">MongoDB 入门 &amp; 运维 一站式手册</h1>
+      <p>
+        本手册基于 <code>blueking-dbm/docs/operations/</code> 内多份 Markdown 整理而成，
+        覆盖 <strong>概念入门 → mongosh 语法 → DBM 平台运维 → bk-dbmon 监控 → 版本特性</strong> 全链路，
+        面向具备 <strong>MySQL / Redis</strong> 经验的运维同学。
+      </p>
+      <div class="meta-row">
+        <span class="badge"><span class="dot"></span>来源：blueking-dbm/docs/operations</span>
+        <span class="badge purple"><span class="dot"></span>目标读者：MySQL/Redis 经验运维</span>
+        <span class="badge green"><span class="dot"></span>语言：中文</span>
+        <span class="badge amber"><span class="dot"></span>形态：多文件 HTML + PPT</span>
+        <span class="badge pink"><span class="dot"></span>风格：现代深色 / 响应式</span>
+      </div>
+    </section>
+
+    <!-- 仪表盘 -->
+    <section class="grid col-4" style="margin-bottom:18px">
+      <div class="stat"><div class="ico">📚</div><div><div class="num">12</div><div class="lbl">独立章节</div></div></div>
+      <div class="stat"><div class="ico">🧩</div><div><div class="num">95+</div><div class="lbl">小节条目</div></div></div>
+      <div class="stat"><div class="ico">📦</div><div><div class="num">30</div><div class="lbl">真实业务案例</div></div></div>
+      <div class="stat"><div class="ico">🚀</div><div><div class="num">2.4 → 8.0</div><div class="lbl">版本覆盖</div></div></div>
+    </section>
+
+    <!-- 推荐路径 -->
+    <section class="section" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">🧭</span> 推荐阅读路径</h2>
+      <p class="text-muted">从零起步的运维同学按 6 步走，可在最短时间内独立完成日常运维。</p>
+      <div class="roadmap">
+        <a class="step" href="handbook/chapters/01-concepts.html"><span class="n">1</span>概念对照</a>
+        <span class="arrow">→</span>
+        <a class="step" href="handbook/chapters/02-cluster-topology.html"><span class="n">2</span>集群形态</a>
+        <span class="arrow">→</span>
+        <a class="step" href="handbook/chapters/03-first-deploy.html"><span class="n">3</span>首次部署</a>
+        <span class="arrow">→</span>
+        <a class="step" href="handbook/chapters/05-mongosh.html"><span class="n">4</span>mongosh 入门</a>
+        <span class="arrow">→</span>
+        <a class="step" href="handbook/chapters/04-tickets.html"><span class="n">5</span>工单全景</a>
+        <span class="arrow">→</span>
+        <a class="step" href="handbook/chapters/06-bk-dbmon.html"><span class="n">6</span>bk-dbmon</a>
+      </div>
+    </section>
+
+    <!-- 章节卡片 -->
+    <h2 style="margin:28px 0 14px;font-size:22px;display:flex;align-items:center;gap:10px">
+      <span class="pill violet">📑</span>章节目录
+    </h2>
+
+    <div class="grid col-2">
+      <a class="chap-card" href="handbook/chapters/01-concepts.html" style="--glow:rgba(34,211,238,.22)">
+        <div class="head"><span class="pill cyan">第 1 章</span><h3>导读 &amp; 概念对照</h3></div>
+        <div class="sub">从 MySQL/Redis 视角切入 MongoDB；把已有运维经验「翻译」到 MongoDB 世界。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">1.1</span>读者画像与全文目标</li>
+          <li><span class="idx">1.2</span>副本集 ≈ 主从 / Sentinel</li>
+          <li><span class="idx">1.3</span>分片集群 ≈ 分库分表</li>
+          <li><span class="idx">1.4</span>数据模型对照</li>
+          <li><span class="idx">1.5</span>差异提醒（备份/分片/权限）</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/02-cluster-topology.html" style="--glow:rgba(167,139,250,.22)">
+        <div class="head"><span class="pill violet">第 2 章</span><h3>蓝鲸 DBM 中的集群形态</h3></div>
+        <div class="sub">理解平台两类集群与拓扑字段，在控制台一眼看懂角色分布。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">2.1</span>MongoReplicaSet</li>
+          <li><span class="idx">2.2</span>MongoShardedCluster</li>
+          <li><span class="idx">2.3</span>UI 字段对照</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/03-first-deploy.html" style="--glow:rgba(52,211,153,.22)">
+        <div class="head"><span class="pill green">第 3 章</span><h3>首次部署 MongoDB</h3></div>
+        <div class="sub">通过标准化工单驱动安装与元数据注册，避免脱离 DBM 手工 mongod。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">3.1</span>范围与边界</li>
+          <li><span class="idx">3.2</span>前置条件 Checklist</li>
+          <li><span class="idx">3.3</span>选型决策</li>
+          <li><span class="idx">3.4</span>工单类型常量</li>
+          <li><span class="idx">3.5</span>关键参数</li>
+          <li><span class="idx">3.6</span>提单后跟进</li>
+          <li><span class="idx">3.7</span>交付与验活</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/04-tickets.html" style="--glow:rgba(245,158,11,.22)">
+        <div class="head"><span class="pill amber">第 4 章</span><h3>控制台与工单全景</h3></div>
+        <div class="sub">DBM 平台所有 MongoDB 工单的中文名 + 代码常量分组速查。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">4.1</span>部署与生命周期</li>
+          <li><span class="idx">4.2</span>备份与回档</li>
+          <li><span class="idx">4.3</span>扩缩容与拓扑变更</li>
+          <li><span class="idx">4.4</span>主机与实例维护</li>
+          <li><span class="idx">4.5</span>数据与脚本</li>
+          <li><span class="idx">4.6</span>权限</li>
+          <li><span class="idx">4.7</span>插件与观测</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/05-mongosh.html" style="--glow:rgba(244,114,182,.22)">
+        <div class="head"><span class="pill pink">第 5 章</span><h3>mongosh Shell 入门</h3></div>
+        <div class="sub">仅覆盖排障与验活常用写法，为 SQL 背景人员提供「翻译表」。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">5.1</span>环境与连接</li>
+          <li><span class="idx">5.2</span>层次与命名</li>
+          <li><span class="idx">5.3</span>必会命令</li>
+          <li><span class="idx">5.4</span>基础 CRUD + SQL 对照</li>
+          <li><span class="idx">5.5</span>查询运算符</li>
+          <li><span class="idx">5.6</span>索引入门</li>
+          <li><span class="idx">5.7</span>拓扑常用</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/06-bk-dbmon.html" style="--glow:rgba(34,211,238,.22)">
+        <div class="head"><span class="pill cyan">第 6 章</span><h3>bk-dbmon 监控守护</h3></div>
+        <div class="sub">实例机本地守护进程：备份、心跳、健康检查 + 蓝鲸监控对接。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">6.1</span>作用概述</li>
+          <li><span class="idx">6.2</span>DBM 安装 / 更新</li>
+          <li><span class="idx">6.3</span>Flow 入参</li>
+          <li><span class="idx">6.4</span>安装路径与配置</li>
+          <li><span class="idx">6.5</span>常用命令</li>
+          <li><span class="idx">6.6</span>与监控/排障关系</li>
+          <li><span class="idx">6.7</span>版本与介质</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/07-versions.html" style="--glow:rgba(167,139,250,.22)">
+        <div class="head"><span class="pill violet">第 7 章</span><h3>2.4 → 8.0 版本特性概览</h3></div>
+        <div class="sub">按主次版本线整理对运维、备份、升级、安全、复制/分片影响较大的变化。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">7.1</span>EOL 警示与事实来源</li>
+          <li><span class="idx">7.2</span>Release Notes 索引</li>
+          <li><span class="idx">7.3</span>2.4 ~ 4.x（EOL 区段）</li>
+          <li><span class="idx">7.4</span>5.0 ~ 8.0（维护中）</li>
+          <li><span class="idx">7.5</span>跨版本主题速查</li>
+          <li><span class="idx">7.6</span>升级前 5 步 Checklist</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/09-mongo-tools.html" style="--glow:rgba(245,158,11,.22)">
+        <div class="head"><span class="pill amber">第 9 章 · 工具</span><h3>mongodump / mongorestore &amp; MongoDB 工具集</h3></div>
+        <div class="sub">导出/导入、PITR 备份、合服迁移、part_bak 部分导数；含 archive/oplog/gzip/zstd 实战参数与 CursorNotFound 等踩坑总结。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">9.1</span>工具家族总览</li>
+          <li><span class="idx">9.2</span>mongodump 常用参数</li>
+          <li><span class="idx">9.3</span>mongorestore 常用参数</li>
+          <li><span class="idx">9.4</span>mongoexport / mongoimport</li>
+          <li><span class="idx">9.5</span>mongostat / mongotop</li>
+          <li><span class="idx">9.6</span>mongo-toolkit-go &amp; PITR</li>
+          <li><span class="idx">9.7</span>备份策略与 DBM 命名规约</li>
+          <li><span class="idx">9.8</span>边界与官方文档入口</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/10-cases.html" style="--glow:rgba(248,113,113,.22);grid-column:span 2">
+        <div class="head"><span class="pill red">第 10 章 · 实战</span><h3>业务案例集（IegMongoTeam 知识库）</h3></div>
+        <div class="sub">汇总真实案例：4.2.5 KeyNotFound、$or 慢查询、partial 索引未命中、tetris session 单点、xssh 缩容、vega 合服、分片集群 Restore…… 支持<strong>主题分组 + 版本/严重度筛选 + 全文搜索</strong>。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">10.1</span>🐛 Bug &amp; 故障（7 例）</li>
+          <li><span class="idx">10.2</span>🐌 性能 / 慢查询（5 例）</li>
+          <li><span class="idx">10.3</span>🧱 拓扑 / 分片（4 例）</li>
+          <li><span class="idx">10.4</span>💾 备份 / 回档（3 例）</li>
+          <li><span class="idx">10.5</span>🚚 迁移 / 扩缩容（4 例）</li>
+          <li><span class="idx">10.6</span>🛠 工具 + 📋 单据指引（5 例）</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/11-uri-readpref.html" style="--glow:rgba(52,211,153,.22)">
+        <div class="head"><span class="pill green">第 11 章 · 连接</span><h3>连接 URI &amp; readPreference 详解</h3></div>
+        <div class="sub">连接串语法、副本集 / Sharded 连接形态、5 种 readPreference 模式、tag &amp; maxStaleness、CLB 会话保持踩坑、与 mongodump / driver / 各语言客户端的联动配置。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">11.1</span>连接串语法总览</li>
+          <li><span class="idx">11.2</span>认证库与用户</li>
+          <li><span class="idx">11.3</span>常见连接形态</li>
+          <li><span class="idx">11.4</span>关键 URI 选项速查</li>
+          <li><span class="idx">11.5</span>readPreference 五大模式</li>
+          <li><span class="idx">11.6</span>tag &amp; maxStalenessSeconds</li>
+          <li><span class="idx">11.7</span>shell 内动态切换</li>
+          <li><span class="idx">11.8</span>实战陷阱（CLB / cursor / 合服）</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/12-indexes.html" style="--glow:rgba(167,139,250,.22)">
+        <div class="head"><span class="pill violet">第 12 章 · 性能</span><h3>索引设计与优化</h3></div>
+        <div class="sub">从 B-Tree 物理结构 → 12 类索引家族 → ESR 黄金法则 → 覆盖查询 → explain 解读 → 5 个真实业务踩坑 → 分片表索引特殊性 → 索引体检 7 步 Checklist。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">12.1</span>为什么必须建索引</li>
+          <li><span class="idx">12.2</span>索引家族全景（12 类）</li>
+          <li><span class="idx">12.3</span>建/看/删/隐藏/重建</li>
+          <li><span class="idx">12.4</span>复合索引黄金法则 ESR</li>
+          <li><span class="idx">12.5</span>覆盖查询 Covered Query</li>
+          <li><span class="idx">12.6</span>读懂 explain 输出</li>
+          <li><span class="idx">12.7</span>真实业务案例（5 例）</li>
+          <li><span class="idx">12.8</span>反模式 vs 最佳实践</li>
+          <li><span class="idx">12.9</span>分片集群索引特殊性</li>
+          <li><span class="idx">12.10</span>索引体检 Checklist</li>
+        </ul>
+      </a>
+
+      <a class="chap-card" href="handbook/chapters/08-appendix.html" style="--glow:rgba(148,163,184,.22)">
+        <div class="head"><span class="pill">附录</span><h3>排障入口、FAQ、术语表</h3></div>
+        <div class="sub">仓库内 mongo 相关源码索引、官方手册主题入口、常见 FAQ 集中归档。</div>
+        <ul class="toc-mini">
+          <li><span class="idx">A.1</span>仓库源码索引</li>
+          <li><span class="idx">A.2</span>官方主题手册入口</li>
+          <li><span class="idx">A.3</span>FAQ：5 个常见误区</li>
+          <li><span class="idx">A.4</span>术语表（Glossary）</li>
+        </ul>
+      </a>
+    </div>
+
+  </main>
+</div>
+
+<script src="handbook/assets/app.js?v=20260518b"></script>
+<script>
+  HandbookInit({ activeId:'home', fromIndex:true });
+
+  // 首页定制：右下角按钮 / 按 P 启动 → 用模板克隆 deck，挂载播放
+  (function(){
+    const btn = document.querySelector('.deck-launch');
+    if (!btn) return;
+    btn.onclick = function(){
+      const tpl = document.getElementById('homeDeckTpl');
+      if (!tpl) return;
+      const node = tpl.content.firstElementChild.cloneNode(true);
+      node.id = '';
+      // 重置 active 状态
+      node.querySelectorAll('.slide').forEach((s,i)=>s.classList.toggle('active', i===0));
+      window.DeckMount(node);
+    };
+  })();
+</script>
+</body>
+</html>

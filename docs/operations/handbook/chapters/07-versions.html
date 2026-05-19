@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第 7 章 · 2.4→8.0 版本特性 | MongoDB 手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css?v=20260518b" />
+<style>
+  /* 时间线 */
+  .timeline{position:relative;margin:18px 0 8px;padding-left:24px}
+  .timeline::before{
+    content:"";position:absolute;left:7px;top:6px;bottom:6px;width:2px;
+    background:linear-gradient(180deg,rgba(34,211,238,.6),rgba(167,139,250,.6),rgba(248,113,113,.4));
+    border-radius:2px;
+  }
+  .tl-item{position:relative;margin-bottom:14px}
+  .tl-item::before{
+    content:"";position:absolute;left:-20px;top:14px;width:14px;height:14px;border-radius:50%;
+    background:#0c1730;border:3px solid #22d3ee;box-shadow:0 0 0 3px rgba(34,211,238,.15);
+  }
+  .tl-item.eol::before{border-color:#f87171;box-shadow:0 0 0 3px rgba(248,113,113,.15)}
+  .tl-item.cur::before{border-color:#34d399;box-shadow:0 0 0 3px rgba(52,211,153,.2)}
+  .tl-item.new::before{
+    border-color:#a78bfa;box-shadow:0 0 0 3px rgba(167,139,250,.25);
+    animation:pulse 2s infinite;
+  }
+  @keyframes pulse{
+    0%,100%{box-shadow:0 0 0 3px rgba(167,139,250,.25)}
+    50%{box-shadow:0 0 0 8px rgba(167,139,250,.05)}
+  }
+  .tl-card{
+    background:var(--card-2);border:1px solid var(--border);border-radius:12px;
+    padding:14px 18px;
+  }
+  .tl-card h4{margin:0 0 6px;font-size:15.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tl-card .ver{font-family:JetBrains Mono,monospace;font-size:14px;color:#a5f3fc;background:#0c1730;border:1px solid var(--border);padding:2px 8px;border-radius:6px}
+  .tl-card ul{margin:6px 0 0;padding-left:18px;font-size:13px;color:#cbd5e1}
+  .tl-card li{margin:2px 0}
+  .tl-card a.link{font-size:11.5px;color:#67e8f9;margin-left:4px}
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <main class="main">
+
+    <nav class="crumb">
+      <a href="../../index.html">🏠 首页</a><span class="sep">/</span>
+      <span>第 7 章</span><span class="sep">/</span>
+      <span style="color:#cbd5e1">2.4 → 8.0 版本特性</span>
+    </nav>
+
+    <h1 class="page-title">第 7 章 · MongoDB 2.4 ~ 8.0 版本特性概览（运维向）</h1>
+    <p class="page-lead">
+      按主次版本线归纳对<strong>运维、备份回档、升级、安全、存储与复制/分片</strong>影响较大的变化，
+      帮助你建立「大版本差异」心智，规避升级踩坑。
+    </p>
+
+    <!-- 7.0 -->
+    <section class="section" id="sec-7-0" style="--glow:rgba(248,113,113,.2)">
+      <h2><span class="ix">7.0</span>文首必读 <span class="pill red">⚠ 重要</span></h2>
+      <div class="grid col-2">
+        <div class="card">
+          <div class="head"><div class="ico-big">⛔</div><h4>EOL 警示</h4></div>
+          <div class="sub">
+            MongoDB <strong>2.4 ~ 4.0 及更早系列已 EOL</strong>（生命周期结束）。
+            老版本描述<strong>仅作迁移与读史</strong>，<strong>禁止</strong>在新环境部署。
+          </div>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">📚</div><h4>事实来源</h4></div>
+          <div class="sub">
+            特性与兼容性以 <strong>MongoDB 官方手册 Release Notes / Compatibility Changes</strong> 为准。
+            定制发行版以厂商说明为准。
+          </div>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">🔗</div><h4>与蓝鲸 DBM 关系</h4></div>
+          <div class="sub">
+            「可升级版本列表」由介质包 + <code>MONGODB_MAJOR_MINOR_UPGRADE_CHAIN</code> 决定。
+            <strong>平台允许 ≠ 全部历史特性</strong>。
+          </div>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">📝</div><h4>维护方式</h4></div>
+          <div class="sub">本章仅列<strong>少量代表项</strong>；细节、小版本补丁与弃用时间表请以官方 Release Notes 为准。</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7.1 -->
+    <section class="section" id="sec-7-1" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">7.1</span>官方 Release Notes 索引（建议收藏）<span class="pill cyan">索引</span></h2>
+      <div class="grid col-3">
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/8.0/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill violet">最新</span><h4>8.0</h4></div>
+          <div class="sub">性能扩展 · Queryable Encryption</div>
+        </a>
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/7.0/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill green">维护中</span><h4>7.0</h4></div>
+          <div class="sub">Backward Incompatible Changes</div>
+        </a>
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/6.0/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill green">维护中</span><h4>6.0</h4></div>
+          <div class="sub">查询计划器 / 时序聚合</div>
+        </a>
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/5.0/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill amber">已老</span><h4>5.0</h4></div>
+          <div class="sub">Time Series · live resharding</div>
+        </a>
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/4.4/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill amber">已老</span><h4>4.4</h4></div>
+          <div class="sub">hedged reads · hidden indexes</div>
+        </a>
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/4.2/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill red">EOL</span><h4>4.2</h4></div>
+          <div class="sub">通配符索引 · 分片事务</div>
+        </a>
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/4.0/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill red">EOL</span><h4>4.0</h4></div>
+          <div class="sub">副本集多文档事务</div>
+        </a>
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/3.6/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill red">EOL</span><h4>3.6</h4></div>
+          <div class="sub">Change Streams · retryable writes</div>
+        </a>
+        <a class="card" href="https://www.mongodb.com/docs/manual/release-notes/" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <div class="head"><span class="pill">总目录</span><h4>3.0 / 3.2 / 3.4 等</h4></div>
+          <div class="sub">官方 Release Notes 总目录</div>
+        </a>
+      </div>
+    </section>
+
+    <!-- 7.2 -->
+    <section class="section" id="sec-7-2" style="--glow:rgba(248,113,113,.16)">
+      <h2><span class="ix">7.2</span>2.4 ~ 4.x 版本线（EOL 区段，仅作读史）<span class="pill red">EOL</span></h2>
+      <div class="timeline">
+        <div class="tl-item eol">
+          <div class="tl-card">
+            <h4><span class="ver">2.4 ~ 3.0</span><span class="pill red">EOL</span></h4>
+            <ul>
+              <li><strong>存储</strong>：长期以 <strong>MMAPv1</strong> 为主；<strong>WiredTiger</strong> 在 3.0 作为可选引擎引入。</li>
+              <li><strong>复制集</strong>：副本集能力逐步成熟（选举、多数派语义随版本演进）。</li>
+              <li><strong>查询与索引</strong>：文本索引、地理空间能力在 2.x ~ 3.0 期间逐步扩展。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item eol">
+          <div class="tl-card">
+            <h4><span class="ver">3.2</span><span class="pill red">EOL</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/3.2/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>存储引擎</strong>：新部署默认 <strong>WiredTiger</strong>。</li>
+              <li><strong>索引</strong>：引入 <strong>partial index（部分索引）</strong>。</li>
+              <li><strong>运维</strong>：<code>mongo</code> shell 仍为主流；后续逐步过渡到 <strong>mongosh</strong>。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item eol">
+          <div class="tl-card">
+            <h4><span class="ver">3.4</span><span class="pill red">EOL</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/3.4/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>数据类型</strong>：<strong>Decimal128</strong> 满足金融等精确小数场景。</li>
+              <li><strong>排序与比较</strong>：<strong>Collation</strong> 可在集合 / 索引 / 查询层统一语言规则。</li>
+              <li><strong>聚合</strong>：<strong><code>$facet</code></strong> 等阶段增强。</li>
+              <li><strong>读 Concern</strong>：<strong>linearizable</strong> 等强一致读语义。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item eol">
+          <div class="tl-card">
+            <h4><span class="ver">3.6</span><span class="pill red">EOL</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/3.6/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>变更流（Change Streams）</strong>：对集合 / 库 / 部署提供有序变更订阅。</li>
+              <li><strong>可重试写入（retryable writes）</strong>：网络闪断时由驱动自动重试。</li>
+              <li><strong>arrayFilters</strong>：使多元素定位更新更可控。</li>
+              <li><strong>安全</strong>：SCRAM 认证与 TLS 配置持续强化。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item eol">
+          <div class="tl-card">
+            <h4><span class="ver">4.0</span><span class="pill red">EOL</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/4.0/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>多文档事务（副本集）</strong>：跨文档 ACID 能力。</li>
+              <li><strong>聚合</strong>：<strong><code>$lookup</code></strong> 与 <strong><code>$convert</code></strong> 等增强。</li>
+              <li><strong>升级路径</strong>：从 3.6 升级通常需<strong>二进制升级 + FCV 分步</strong>，勿跳步。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item eol">
+          <div class="tl-card">
+            <h4><span class="ver">4.2</span><span class="pill red">EOL</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/4.2/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>通配符索引（wildcard index）</strong>。</li>
+              <li><strong>聚合 <code>$merge</code></strong>：常用于 ETL / 物化视图类流水线。</li>
+              <li><strong>分布式多文档事务</strong>：扩展至<strong>分片集群</strong>。</li>
+              <li><strong>客户端字段级加密（FLE）</strong>：在驱动侧完成加解密。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item">
+          <div class="tl-card">
+            <h4><span class="ver">4.4</span><span class="pill amber">已老</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/4.4/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>对冲读（hedged reads）</strong>：跨地域读延迟优化潜力。</li>
+              <li><strong>流式复制（streamable oplog cursor）</strong>：副本集同步路径优化。</li>
+              <li><strong>隐藏索引（hidden indexes）</strong>：对规划器不可见但仍维护，适合「生产验证索引收益」。</li>
+              <li><strong>聚合 <code>$unionWith</code></strong>：跨集合管道组合。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7.3 -->
+    <section class="section" id="sec-7-3" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">7.3</span>5.0 ~ 8.0 版本线（维护中）<span class="pill green">推荐</span></h2>
+      <div class="timeline">
+        <div class="tl-item cur">
+          <div class="tl-card">
+            <h4><span class="ver">5.0</span><span class="pill amber">已老</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/5.0/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>时间序列集合（Time Series）</strong>：监控与 IoT 类高写场景专用。</li>
+              <li><strong>版本化 API（Versioned API）</strong>：减轻升级对应用的影响。</li>
+              <li><strong>分片</strong>：<strong>live resharding / reshardCollection</strong> 减轻分片键选错的迁移成本。</li>
+              <li><strong>FCV 升级</strong>：<code>featureCompatibilityVersion</code> 升级步骤明确，前后务必备份。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item cur">
+          <div class="tl-card">
+            <h4><span class="ver">6.0</span><span class="pill green">维护中</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/6.0/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>查询与索引计划器</strong>：升级后建议抓<strong>慢查询 + explain</strong> 做回归。</li>
+              <li><strong>时序与聚合</strong>：报表与归档任务需回归。</li>
+              <li><strong>安全与默认行为</strong>：默认绑定、日志与弃用项以 Compatibility 为准。</li>
+              <li><strong>Atlas Search</strong> 等周边能力需单独核对版本矩阵。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item cur">
+          <div class="tl-card">
+            <h4><span class="ver">7.0</span><span class="pill green">维护中</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/7.0/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>Backward Incompatible Changes</strong>：升级前主检查清单（驱动、配置、脚本、监控）。</li>
+              <li><strong>性能与可观测性</strong>：监控指标与日志字段可能有增减，Prometheus / Grafana 采集规则需回归。</li>
+              <li><strong>分片与副本集</strong>：路由、选举与 balancer 参数若有弃用，以 Release Notes 为准替换。</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="tl-item new">
+          <div class="tl-card">
+            <h4><span class="ver">8.0</span><span class="pill violet">最新</span>
+              <a class="link" href="https://www.mongodb.com/docs/manual/release-notes/8.0/" target="_blank" rel="noopener">官方 ↗</a></h4>
+            <ul>
+              <li><strong>性能与扩展</strong>：吞吐、复制与扩展效率方向改进；具体数值以 Release Notes 为准。</li>
+              <li><strong>Queryable Encryption</strong>：服务端查询与加密组合能力持续演进。</li>
+              <li><strong>升级核对</strong>：驱动、FCV、config server 拓扑、备份 / 回档工具与 DBM 介质是否覆盖目标版本。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7.4 -->
+    <section class="section" id="sec-7-4" style="--glow:rgba(167,139,250,.18)">
+      <h2><span class="ix">7.4</span>按主题查阅官方手册（横向速查）<span class="pill violet">主题</span></h2>
+      <table class="tbl">
+        <thead><tr><th>主题</th><th>MongoDB Manual 入口</th></tr></thead>
+        <tbody>
+          <tr><td>存储引擎 / WiredTiger</td><td><a href="https://www.mongodb.com/docs/manual/core/wiredtiger/" target="_blank" rel="noopener">Storage</a></td></tr>
+          <tr><td>读关注 / 写关注</td><td>
+            <a href="https://www.mongodb.com/docs/manual/reference/read-concern/" target="_blank" rel="noopener">Read Concern</a> /
+            <a href="https://www.mongodb.com/docs/manual/reference/write-concern/" target="_blank" rel="noopener">Write Concern</a></td></tr>
+          <tr><td>副本集协议</td><td><a href="https://www.mongodb.com/docs/manual/reference/replica-configuration/" target="_blank" rel="noopener">Replica Set Configuration</a></td></tr>
+          <tr><td>分片 / Zones / balancer</td><td><a href="https://www.mongodb.com/docs/manual/sharding/" target="_blank" rel="noopener">Sharding</a></td></tr>
+          <tr><td>事务</td><td><a href="https://www.mongodb.com/docs/manual/core/transactions/" target="_blank" rel="noopener">Transactions</a></td></tr>
+          <tr><td>变更流</td><td><a href="https://www.mongodb.com/docs/manual/changeStreams/" target="_blank" rel="noopener">Change Streams</a></td></tr>
+          <tr><td>聚合</td><td><a href="https://www.mongodb.com/docs/manual/aggregation/" target="_blank" rel="noopener">Aggregation</a></td></tr>
+          <tr><td>安全 / TLS / SCRAM</td><td><a href="https://www.mongodb.com/docs/manual/security/" target="_blank" rel="noopener">Security</a></td></tr>
+          <tr><td>加密（含 Queryable Encryption）</td><td><a href="https://www.mongodb.com/docs/manual/core/security-encryption/" target="_blank" rel="noopener">Encryption</a></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 7.5 -->
+    <section class="section" id="sec-7-5" style="--glow:rgba(245,158,11,.18)">
+      <h2><span class="ix">7.5</span>跨版本主题速查 <span class="pill amber">速查</span></h2>
+      <table class="tbl">
+        <thead><tr><th>主题</th><th>建议动作</th></tr></thead>
+        <tbody>
+          <tr><td>存储引擎</td><td>3.x 起重点关注 WiredTiger；升级时核对 <code>storage.engine</code> 与数据目录兼容性。</td></tr>
+          <tr><td>事务</td><td>4.0 副本集多文档事务 → 4.2+ 分片场景扩展；应用与驱动需对齐。</td></tr>
+          <tr><td>读 / 写 Concern</td><td>与因果一致性、多数派读写相关，跨版本语义有增量调整。</td></tr>
+          <tr><td>分片键与 balancer</td><td>5.x 起 <strong>refineShardKey</strong>、<strong>reshard</strong> 等能力减轻分片键固化问题。</td></tr>
+          <tr><td>变更流（Change Streams）</td><td>跨版本 API 与集群范围有演进，升级后需回归依赖变更流的应用。</td></tr>
+          <tr><td>客户端</td><td><strong>mongo shell → mongosh</strong>；旧 shell 已弃用。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 7.6 -->
+    <section class="section" id="sec-7-6" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">7.6</span>升级前检查清单（通用）<span class="pill cyan">✅ Checklist</span></h2>
+      <div class="steps">
+        <div class="step-item">
+          <div class="n">1</div>
+          <div class="body">
+            <h5>阅读 Release Notes</h5>
+            <p>目标版本的 <strong>Release Notes</strong> + <strong>Compatibility Changes</strong> 全文细读。</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="n">2</div>
+          <div class="body">
+            <h5>测试环境演练</h5>
+            <p><strong>备份 → 升级 → 验活</strong>（读写、副本集 / 分片状态）<strong>→ 应用回归</strong>。</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="n">3</div>
+          <div class="body">
+            <h5>核对 FCV 步骤</h5>
+            <p>核对 <code>featureCompatibilityVersion</code> 升级步骤（若适用）。</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="n">4</div>
+          <div class="body">
+            <h5>核对驱动与工具链</h5>
+            <p>驱动、BI / 工具链兼容性矩阵全部核对一遍。</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="n">5</div>
+          <div class="body">
+            <h5>DBM 介质核对</h5>
+            <p>介质包是否已上架、升级链是否包含目标主次版本，见 API 文档与<a href="03-first-deploy.html">运维指南「版本与介质」</a>。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="../assets/app.js?v=20260518b"></script>
+<script>HandbookInit({ activeId:'ch07' });</script>
+</body>
+</html>

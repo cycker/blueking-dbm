@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第 11 章 · 连接 URI 与 readPreference | MongoDB 手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css?v=20260518b" />
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <main class="main">
+
+    <nav class="crumb">
+      <a href="../../index.html">🏠 首页</a><span class="sep">/</span>
+      <span>第 11 章</span><span class="sep">/</span>
+      <span style="color:#cbd5e1">连接 URI &amp; readPreference</span>
+    </nav>
+
+    <h1 class="page-title">第 11 章 · MongoDB 连接 URI 与 readPreference 全解</h1>
+    <p class="page-lead">
+      MongoDB 客户端与服务器之间的「<strong>连接串</strong>」远比 MySQL JDBC URL 复杂：它一行字符串里同时包含了
+      <strong>种子节点列表、副本集名称、认证库、TLS、压缩、读偏好、超时</strong> 等几十种参数。
+      理解 <code>connection string</code> 与 <code>readPreference</code>，是排查 <em>读写分离不生效、慢查询打错节点、从节点延迟读到旧数据</em>
+      等问题的前提。本章对照真实业务案例，给出可直接复用的连接模板。
+    </p>
+
+    <!-- 11.1 -->
+    <section class="section" id="sec-11-1" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">11.1</span>连接串两种格式 <span class="pill cyan">基础</span></h2>
+
+      <div class="grid col-2">
+        <div class="card">
+          <div class="head"><div class="ico-big">📜</div><h4>标准格式 · Standard</h4></div>
+          <p class="text-muted" style="margin:6px 0 8px">最常用。直接列出种子主机，副本集 / mongos 都适用。</p>
+<pre><span class="code-tag">URI</span><code>mongodb://<span class="tok-str">[username:password@]</span>host1[:port][,host2[:port],...][/[defaultDb]<span class="tok-str">[?options]</span>]</code></pre>
+          <ul style="margin-top:8px">
+            <li><strong>host 列表</strong>：副本集时建议<strong>全部成员</strong>都列上，至少 2 个；分片集群列<strong>所有 mongos</strong>。</li>
+            <li><strong>defaultDb</strong>：常被误以为是「认证库」，其实是「默认 use 的库」；认证库由 <code>authSource</code> 指定。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">🌐</div><h4>SRV 格式 · DNS Seedlist</h4></div>
+          <p class="text-muted" style="margin:6px 0 8px">需要 DNS 服务支持，能从一条记录解析出多节点种子。</p>
+<pre><span class="code-tag">URI</span><code>mongodb+srv://<span class="tok-str">user:pass@</span>cluster.example.com<span class="tok-str">/?replicaSet=rs0</span></code></pre>
+          <div class="callout warn" style="margin-top:8px">
+            <div class="ico">⚠</div>
+            <div class="body">
+              <strong>蓝鲸 / GCS 域名当前不提供 SRV 记录</strong>
+              内网 DNS 多采用「轮询返回单 IP」机制，<strong>请使用标准格式手动列出全部 mongos / 副本集成员</strong>，否则可能出现 cursor 失效与负载不均（见 11.6）。
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3>解剖一条真实连接串</h3>
+<pre><span class="code-tag">URI</span><code><span class="tok-cmt">// 副本集（主从读写分离）</span>
+mongodb://<span class="tok-fn">appuser</span>:<span class="tok-str">P@ssw0rd</span>@<span class="tok-fn">10.1.1.1</span>:27017,<span class="tok-fn">10.1.1.2</span>:27017,<span class="tok-fn">10.1.1.3</span>:27017/<span class="tok-fn">myapp</span>?replicaSet=<span class="tok-str">rs0</span>&amp;authSource=<span class="tok-str">admin</span>&amp;readPreference=<span class="tok-str">secondaryPreferred</span>&amp;maxStalenessSeconds=<span class="tok-num">90</span>&amp;w=<span class="tok-str">majority</span>
+
+<span class="tok-cmt">// 分片集群（多 mongos）</span>
+mongodb://<span class="tok-fn">appuser</span>:<span class="tok-str">P@ssw0rd</span>@<span class="tok-fn">mongos1</span>:27021,<span class="tok-fn">mongos2</span>:27021,<span class="tok-fn">mongos3</span>:27021/?authSource=<span class="tok-str">admin</span>&amp;readPreference=<span class="tok-str">primary</span>&amp;retryWrites=<span class="tok-kw">true</span></code></pre>
+
+      <div class="callout info">
+        <div class="ico">🔑</div>
+        <div class="body">
+          <strong>密码中有特殊字符？</strong>
+          <code>@ : / ? # [ ]</code> 等需要 <strong>URL 百分号转义</strong>（如 <code>@</code>→<code>%40</code>），
+          否则解析会把密码截断当成 host。
+          部分外部同步工具明确要求「密码不能含 <code>@</code>」，建议运维侧在建账号时<strong>避开特殊字符</strong>。
+        </div>
+      </div>
+    </section>
+
+    <!-- 11.2 -->
+    <section class="section" id="sec-11-2" style="--glow:rgba(167,139,250,.18)">
+      <h2><span class="ix">11.2</span>常用 URI Options 速查 <span class="pill violet">参数</span></h2>
+      <p class="text-muted">URI 后 <code>?</code> 里的 key=value 都是 options，多个用 <code>&amp;</code> 连接。下表整理蓝鲸场景最常见的 18 项。</p>
+
+      <table class="tbl">
+        <thead>
+          <tr><th>分类</th><th>参数</th><th>取值 / 示例</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td rowspan="2">拓扑</td><td><code>replicaSet</code></td><td><code>rs0</code></td><td>副本集名；<strong>不写</strong>则当作单机连接，故障转移失效</td></tr>
+          <tr><td><code>directConnection</code></td><td><code>true</code> / <code>false</code></td><td>强制直连指定 host，跳过拓扑发现（排障常用）</td></tr>
+
+          <tr><td rowspan="3">认证</td><td><code>authSource</code></td><td><code>admin</code></td><td>认证库；与 <code>defaultDb</code> 区分</td></tr>
+          <tr><td><code>authMechanism</code></td><td><code>SCRAM-SHA-256</code></td><td>4.0+ 默认；老版本用 SHA-1</td></tr>
+          <tr><td><code>tls</code> / <code>ssl</code></td><td><code>true</code></td><td>启用 TLS（外网 / 公有云常用）</td></tr>
+
+          <tr><td rowspan="3">读偏好</td><td><code>readPreference</code></td><td><code>secondaryPreferred</code></td><td>见 <a href="#sec-11-3">11.3</a></td></tr>
+          <tr><td><code>readPreferenceTags</code></td><td><code>dc:sh,role:analytics</code></td><td>按 tag 选节点</td></tr>
+          <tr><td><code>maxStalenessSeconds</code></td><td><code>90</code></td><td>从库最大延迟阈值；超过则跳过</td></tr>
+
+          <tr><td rowspan="3">写关注</td><td><code>w</code></td><td><code>1</code> / <code>majority</code></td><td>写多少个节点才返回成功</td></tr>
+          <tr><td><code>journal</code> / <code>j</code></td><td><code>true</code></td><td>是否落 journal 才返回</td></tr>
+          <tr><td><code>wtimeoutMS</code></td><td><code>5000</code></td><td>写关注的超时</td></tr>
+
+          <tr><td rowspan="3">连接池</td><td><code>maxPoolSize</code></td><td><code>100</code></td><td>客户端单 host 最大连接数（默认 100）</td></tr>
+          <tr><td><code>minPoolSize</code></td><td><code>0</code></td><td>常驻最小连接</td></tr>
+          <tr><td><code>maxIdleTimeMS</code></td><td><code>60000</code></td><td>空闲连接回收时间</td></tr>
+
+          <tr><td rowspan="2">超时</td><td><code>connectTimeoutMS</code></td><td><code>10000</code></td><td>建立 socket 的超时</td></tr>
+          <tr><td><code>socketTimeoutMS</code></td><td><code>0</code></td><td>单次 IO 超时；0 = 永不超时</td></tr>
+
+          <tr><td rowspan="2">高级</td><td><code>retryWrites</code></td><td><code>true</code></td><td>4.2+ 默认 true，幂等写自动重试一次</td></tr>
+          <tr><td><code>compressors</code></td><td><code>zstd,snappy,zlib</code></td><td>线上传输压缩；3.6+ 支持</td></tr>
+        </tbody>
+      </table>
+
+      <p class="text-muted" style="margin-top:10px">完整列表见 <a href="https://www.mongodb.com/docs/manual/reference/connection-string-options/" target="_blank" rel="noopener">官方 Connection String Options</a>。</p>
+    </section>
+
+    <!-- 11.3 -->
+    <section class="section" id="sec-11-3" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">11.3</span>readPreference 五种模式 <span class="pill green">读偏好</span></h2>
+      <p>这是最容易写错、也最影响业务体验的一组参数。<strong>它仅决定「读流量打到哪个节点」</strong>，写流量永远只能到 Primary。</p>
+
+      <div class="grid col-2">
+        <div class="card" style="--glow:rgba(248,113,113,.22)">
+          <div class="head"><span class="pill red">primary</span><h4>仅主</h4></div>
+          <ul style="margin-top:6px">
+            <li><strong>默认值</strong>。所有读都打到 Primary。</li>
+            <li>强一致；Primary 故障期间读会失败。</li>
+            <li>适合：账户、订单、计费等强一致业务。</li>
+          </ul>
+        </div>
+
+        <div class="card" style="--glow:rgba(245,158,11,.22)">
+          <div class="head"><span class="pill amber">primaryPreferred</span><h4>主优先</h4></div>
+          <ul style="margin-top:6px">
+            <li>Primary 健康时打 Primary，否则打 Secondary。</li>
+            <li>Primary 故障期间读不会中断。</li>
+            <li>适合：希望故障期间「读降级」的写多读少业务。</li>
+          </ul>
+        </div>
+
+        <div class="card" style="--glow:rgba(52,211,153,.22)">
+          <div class="head"><span class="pill green">secondary</span><h4>仅从</h4></div>
+          <ul style="margin-top:6px">
+            <li>必须打 Secondary，主上不读；无可用从库则读失败。</li>
+            <li>从可能落后；非主链路存在<strong>瞬时旧数据</strong>。</li>
+            <li>适合：报表、离线统计、爬虫式扫描。</li>
+          </ul>
+        </div>
+
+        <div class="card" style="--glow:rgba(34,211,238,.22)">
+          <div class="head"><span class="pill cyan">secondaryPreferred</span><h4>从优先</h4></div>
+          <ul style="margin-top:6px">
+            <li><strong>蓝鲸内最常见</strong>。优先 Secondary，无可用从库再读 Primary。</li>
+            <li>读写分离的最佳折中：主写从读，主故障读不中断。</li>
+            <li>监控采集 / 备份 / 旁路分析等只读型负载推荐使用。</li>
+          </ul>
+        </div>
+
+        <div class="card" style="--glow:rgba(167,139,250,.22);grid-column:span 2">
+          <div class="head"><span class="pill violet">nearest</span><h4>最近节点</h4></div>
+          <ul style="margin-top:6px">
+            <li>不区分主从，按 <strong>ping 延迟</strong>选最近的节点（含 Primary）。</li>
+            <li>适合：跨机房 / 跨地域部署，希望就近读。</li>
+            <li>注意：拿到的可能是从（旧数据）也可能是主（强一致）；业务必须能容忍这两种情况。</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>mongosh 中切换 readPref</h3>
+<pre><span class="code-tag">mongosh</span><code><span class="tok-cmt">// 当前会话切换；脚本里很常用，例如「呢称提取脚本」</span>
+db.<span class="tok-fn">getMongo</span>().<span class="tok-fn">setReadPref</span>(<span class="tok-str">"secondary"</span>)
+db.<span class="tok-fn">getMongo</span>().<span class="tok-fn">setReadPref</span>(<span class="tok-str">"secondaryPreferred"</span>, [{ dc: <span class="tok-str">"sh"</span> }])    <span class="tok-cmt">// 带 tag</span>
+
+<span class="tok-cmt">// 单条命令级覆盖</span>
+db.users.<span class="tok-fn">find</span>().<span class="tok-fn">readPref</span>(<span class="tok-str">"secondaryPreferred"</span>).<span class="tok-fn">limit</span>(<span class="tok-num">10</span>)</code></pre>
+    </section>
+
+    <!-- 11.4 -->
+    <section class="section" id="sec-11-4" style="--glow:rgba(244,114,182,.18)">
+      <h2><span class="ix">11.4</span>maxStalenessSeconds：让从读「不至于太旧」 <span class="pill pink">一致性</span></h2>
+      <p>当 readPreference 允许从读时，<strong>maxStalenessSeconds</strong> 决定客户端只挑选「延迟不超过 N 秒」的从节点；
+        超过该阈值的从会被驱动暂时排除。</p>
+
+      <table class="tbl">
+        <thead><tr><th>取值</th><th>含义</th><th>建议</th></tr></thead>
+        <tbody>
+          <tr><td><code>未设置</code></td><td>不限制；任意延迟都用</td><td>采集 / 异步统计可不填</td></tr>
+          <tr><td><code>90</code></td><td>从必须落后不超过 90s</td><td><strong>蓝鲸 cmdb 真实采用值</strong>（见慢查询案例）</td></tr>
+          <tr><td><code>120</code></td><td>2 分钟</td><td>读容忍度较高的报表</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout warn">
+        <div class="ico">⚠</div>
+        <div class="body">
+          <strong>下限 90 秒</strong>
+          MongoDB 协议规定该参数最小值为 <code>90</code>，小于 90 会报错。
+          且只有 <code>secondary</code>/<code>secondaryPreferred</code>/<code>nearest</code> 三种模式下才生效。
+        </div>
+      </div>
+    </section>
+
+    <!-- 11.5 -->
+    <section class="section" id="sec-11-5" style="--glow:rgba(245,158,11,.18)">
+      <h2><span class="ix">11.5</span>writeConcern：写多少节点才算成功 <span class="pill amber">一致性</span></h2>
+      <p>与 readPreference 对偶，<strong>writeConcern</strong> 控制写请求需要复制到几个节点才返回 ACK，可以在 URI、单条命令、事务三个级别设置。</p>
+
+      <div class="grid col-2">
+        <div class="card">
+          <div class="head"><div class="ico-big">⚡</div><h4>w=1（默认 4.x 之前）</h4></div>
+          <ul style="margin-top:6px">
+            <li>Primary 落地即返回；最快但有<strong>主切换丢失</strong>风险。</li>
+            <li>用于日志类、可重试写。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">🛡</div><h4>w=majority（5.0+ 默认）</h4></div>
+          <ul style="margin-top:6px">
+            <li>必须落到「过半成员」；可对抗主切换丢数据。</li>
+            <li>账户、订单、扣费类<strong>必填</strong>。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">📐</div><h4>w=&lt;number&gt;</h4></div>
+          <ul style="margin-top:6px">
+            <li>指定到 N 个节点；<code>w=2</code> 常用于 3 节点副本集，性能与可靠性折中。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">🏷</div><h4>w=&lt;custom-tag&gt;</h4></div>
+          <ul style="margin-top:6px">
+            <li>结合副本集 <code>settings.getLastErrorModes</code>，按机房 / 角色组合数。</li>
+            <li>跨城多活会用到。</li>
+          </ul>
+        </div>
+      </div>
+
+      <pre style="margin-top:10px"><span class="code-tag">javascript</span><code><span class="tok-cmt">// 单条写指定 writeConcern</span>
+db.orders.<span class="tok-fn">insertOne</span>(
+  { _id: <span class="tok-num">1</span>, amount: <span class="tok-num">100</span> },
+  { writeConcern: { w: <span class="tok-str">"majority"</span>, j: <span class="tok-kw">true</span>, wtimeout: <span class="tok-num">5000</span> } }
+)</code></pre>
+    </section>
+
+    <!-- 11.6 -->
+    <section class="section" id="sec-11-6" style="--glow:rgba(248,113,113,.18)">
+      <h2><span class="ix">11.6</span>真实业务案例 · 连接串踩坑 <span class="pill red">案例</span></h2>
+
+      <div class="grid col-2">
+        <div class="card" style="--glow:rgba(248,113,113,.22)">
+          <div class="head"><span class="pill red">CASE-1</span><h4>CursorNotFound · 域名 / VIP 连 mongos</h4></div>
+          <ul style="margin-top:6px">
+            <li><strong>现象</strong>：用 GCS 域名 / CLB VIP 跑 mongodump 报 <code>CursorNotFound</code>。</li>
+            <li><strong>原因</strong>：DNS 轮询或 LB 未开会话保持，2 个连接落到不同 mongos，cursor 失效。</li>
+            <li><strong>修复</strong>：连接串里把<strong>所有 mongos IP 全部写上</strong> &nbsp;
+              <code>mongodb://m1,m2,m3/?...</code></li>
+          </ul>
+        </div>
+
+        <div class="card" style="--glow:rgba(245,158,11,.22)">
+          <div class="head"><span class="pill amber">CASE-2</span><h4>mongos 负载不均</h4></div>
+          <ul style="margin-top:6px">
+            <li><strong>现象</strong>：CLB VIP 开会话保持后，单台 mongos 被打爆。</li>
+            <li><strong>原因</strong>：客户端被绑死到一台 mongos。</li>
+            <li><strong>修复</strong>：去掉会话保持改用<strong>多 IP 列表</strong>；客户端驱动会自动均衡。</li>
+          </ul>
+        </div>
+
+        <div class="card" style="--glow:rgba(52,211,153,.22)">
+          <div class="head"><span class="pill green">CASE-3</span><h4>cmdb：$readPreference 90s</h4></div>
+          <ul style="margin-top:6px">
+            <li>蓝鲸 cmdb 慢查询日志显示
+              <code>$readPreference: { mode: "secondaryPreferred", maxStalenessSeconds: 90 }</code></li>
+            <li><strong>意图</strong>：业务允许 90 秒延迟读，把 list / scan 类压力下放到 Secondary。</li>
+            <li><strong>关注点</strong>：Secondary 上仍要保证索引覆盖，否则慢查询会照样飞到主。</li>
+          </ul>
+        </div>
+
+        <div class="card" style="--glow:rgba(34,211,238,.22)">
+          <div class="head"><span class="pill cyan">CASE-4</span><h4>呢称脚本 · setReadPref</h4></div>
+          <ul style="margin-top:6px">
+            <li>warthunder 业务用 mongo shell 跑导出脚本，开头先
+              <code>db.getMongo().setReadPref('secondary')</code>。</li>
+            <li><strong>价值</strong>：扫全表的导出不再压主，避免影响在线玩家。</li>
+            <li><strong>提示</strong>：写型脚本（含 <code>save</code> / <code>update</code>）<strong>不能</strong>这样设；驱动会拒绝写非主。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11.7 -->
+    <section class="section" id="sec-11-7" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">11.7</span>各客户端 / 驱动 URI 写法 <span class="pill cyan">实战</span></h2>
+
+      <div data-tabs>
+        <div class="tabs">
+          <div class="tab">mongosh</div>
+          <div class="tab">Java</div>
+          <div class="tab">Python (PyMongo)</div>
+          <div class="tab">Go</div>
+          <div class="tab">Node.js</div>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">bash</span><code><span class="tok-cmt"># 副本集 + 从优先 + 写多数</span>
+mongosh <span class="tok-str">"mongodb://app:pwd@10.1.1.1:27017,10.1.1.2:27017,10.1.1.3:27017/?replicaSet=rs0&authSource=admin&readPreference=secondaryPreferred&w=majority"</span>
+
+<span class="tok-cmt"># 仅排障：直连某个 hidden 节点</span>
+mongosh <span class="tok-str">"mongodb://app:pwd@10.1.1.9:27017/?authSource=admin&directConnection=true"</span></code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">java</span><code>MongoClient client = MongoClients.<span class="tok-fn">create</span>(
+  <span class="tok-str">"mongodb://app:pwd@m1:27021,m2:27021,m3:27021/?authSource=admin"</span> +
+  <span class="tok-str">"&amp;readPreference=secondaryPreferred&amp;maxStalenessSeconds=90"</span> +
+  <span class="tok-str">"&amp;maxPoolSize=200&amp;retryWrites=true"</span>);</code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">python</span><code><span class="tok-kw">from</span> pymongo <span class="tok-kw">import</span> MongoClient
+client = MongoClient(
+    <span class="tok-str">"mongodb://app:pwd@10.1.1.1,10.1.1.2,10.1.1.3:27017/"</span>
+    <span class="tok-str">"?replicaSet=rs0&amp;authSource=admin"</span>
+    <span class="tok-str">"&amp;readPreference=secondaryPreferred&amp;maxStalenessSeconds=90"</span>
+)</code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">go</span><code>opts := options.Client().<span class="tok-fn">ApplyURI</span>(
+  <span class="tok-str">"mongodb://app:pwd@m1:27021,m2:27021/?authSource=admin&amp;readPreference=secondaryPreferred"</span>,
+)
+client, err := mongo.<span class="tok-fn">Connect</span>(ctx, opts)</code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">javascript</span><code><span class="tok-kw">const</span> { MongoClient } = <span class="tok-fn">require</span>(<span class="tok-str">'mongodb'</span>);
+<span class="tok-kw">const</span> client = <span class="tok-kw">new</span> <span class="tok-fn">MongoClient</span>(
+  <span class="tok-str">'mongodb://app:pwd@m1:27021,m2:27021/?authSource=admin&amp;readPreference=secondaryPreferred'</span>
+);</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11.8 -->
+    <section class="section" id="sec-11-8" style="--glow:rgba(167,139,250,.18)">
+      <h2><span class="ix">11.8</span>排障 Checklist <span class="pill violet">速查</span></h2>
+
+      <div class="grid col-2">
+        <div class="card">
+          <div class="head"><div class="ico-big">🔍</div><h4>客户端报「无法连主」</h4></div>
+          <ol style="margin-top:6px">
+            <li>检查 <code>replicaSet</code> 名是否一致（可用 <code>rs.conf().settings.replicaSetId</code> 比对）。</li>
+            <li><strong>是否漏写 mongos / 成员</strong>，导致单点故障即不可用。</li>
+            <li>VPC / 安全组放通了「全部成员端口」吗？只放通主是不够的。</li>
+          </ol>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">🐢</div><h4>「读到旧数据」</h4></div>
+          <ol style="margin-top:6px">
+            <li>确认 readPreference 是否为 secondary*；调到 <code>primary</code> 复测。</li>
+            <li>查看 <code>rs.printSecondaryReplicationInfo()</code>，<strong>从延迟</strong>是否高。</li>
+            <li>设置 <code>maxStalenessSeconds=90</code>，让驱动主动剔除老化从节点。</li>
+          </ol>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">📈</div><h4>从读慢查询打到主</h4></div>
+          <ol style="margin-top:6px">
+            <li>慢日志里检查 <code>$readPreference.mode</code> 字段。</li>
+            <li>若为 <code>primary</code>，驱动 / 框架配置覆盖了 URI；优先在 <strong>客户端代码</strong>中关掉。</li>
+            <li>从节点<strong>必须建相同索引</strong>；否则即便走从也很慢。</li>
+          </ol>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">🔁</div><h4>主切换后业务报错</h4></div>
+          <ol style="margin-top:6px">
+            <li>检查 <code>retryWrites=true</code> 是否开启。</li>
+            <li>幂等写已自动重试一次；非幂等写需业务自行实现幂等。</li>
+            <li>Java 驱动 ≥ 4.x、PyMongo ≥ 3.11 默认开启。</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- 11.9 -->
+    <section class="section" id="sec-11-9" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">11.9</span>蓝鲸 DBM 推荐连接模板 <span class="pill green">模板</span></h2>
+
+      <div data-tabs>
+        <div class="tabs">
+          <div class="tab">在线交易（强一致）</div>
+          <div class="tab">读写分离（默认）</div>
+          <div class="tab">报表 / 离线扫描</div>
+          <div class="tab">备份采集</div>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">URI</span><code>mongodb://<span class="tok-fn">app</span>:<span class="tok-str">pwd</span>@host1,host2,host3/?
+  authSource=admin
+  &amp;replicaSet=rs0
+  &amp;readPreference=primary
+  &amp;w=majority&amp;j=true
+  &amp;retryWrites=true
+  &amp;maxPoolSize=200</code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">URI</span><code>mongodb://<span class="tok-fn">app</span>:<span class="tok-str">pwd</span>@host1,host2,host3/?
+  authSource=admin
+  &amp;replicaSet=rs0
+  &amp;readPreference=secondaryPreferred
+  &amp;maxStalenessSeconds=90
+  &amp;w=majority
+  &amp;retryWrites=true</code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">URI</span><code>mongodb://<span class="tok-fn">analytics</span>:<span class="tok-str">pwd</span>@host1,host2,host3/?
+  authSource=admin
+  &amp;replicaSet=rs0
+  &amp;readPreference=secondary
+  &amp;maxStalenessSeconds=120
+  &amp;socketTimeoutMS=600000          <span class="tok-cmt">// 长扫描防中断</span>
+  &amp;maxPoolSize=20                  <span class="tok-cmt">// 不要把从打满</span></code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">URI</span><code>mongodb://<span class="tok-fn">backup</span>:<span class="tok-str">pwd</span>@host1,host2,host3/?
+  authSource=admin
+  &amp;replicaSet=rs0
+  &amp;readPreference=secondary
+  &amp;readPreferenceTags=role:backup     <span class="tok-cmt">// 优先打 backup 节点</span>
+  &amp;readPreferenceTags=                <span class="tok-cmt">// 兜底任意从</span></code></pre>
+        </div>
+      </div>
+
+      <div class="callout info" style="margin-top:10px">
+        <div class="ico">📘</div>
+        <div class="body">
+          <strong>相关章节</strong>
+          ① <a href="05-mongosh.html">第 5 章 · mongosh 入门</a>有连接示范；
+          ② <a href="09-tools.html">第 9 章 · MongoDB 工具集</a>各工具如何使用 URI 与 readPref；
+          ③ <a href="10-cases.html">第 10 章 · 业务案例</a>有 mongos 负载不均、CursorNotFound 等真实问题。
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="../assets/app.js?v=20260518b"></script>
+<script>HandbookInit({ activeId:'ch11' });</script>
+</body>
+</html>

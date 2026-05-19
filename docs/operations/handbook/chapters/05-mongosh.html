@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第 5 章 · mongosh Shell 入门 | MongoDB 手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css?v=20260518b" />
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <main class="main">
+
+    <nav class="crumb">
+      <a href="../../index.html">🏠 首页</a><span class="sep">/</span>
+      <span>第 5 章</span><span class="sep">/</span>
+      <span style="color:#cbd5e1">mongosh Shell 入门</span>
+    </nav>
+
+    <h1 class="page-title">第 5 章 · MongoDB Shell 语法入门（mongosh）</h1>
+    <p class="page-lead">
+      面向有 <strong>MySQL / Redis</strong> 使用经验、需要快速上手 MongoDB 交互的运维人员。
+      仅覆盖<strong>日常排障与验活</strong>常用写法；聚合、事务、分片键设计请参考
+      <a href="https://www.mongodb.com/docs/manual/" target="_blank" rel="noopener">MongoDB 官方文档</a>。
+    </p>
+
+    <!-- 5.1 -->
+    <section class="section" id="sec-5-1" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">5.1</span>环境与连接 <span class="pill cyan">连接</span></h2>
+      <p>
+        <code>mongo</code> 与 <code>mongosh</code> <strong>都是 MongoDB 官方 Shell</strong>
+        <code>mongosh</code> 在 <strong>MongoDB 5.0 阶段</strong>作为新一代交互式 Shell 推出，
+        <strong>向下兼容 MongoDB 3.6 及以上</strong>所有版本。它基于 Node.js 实现，提供更友好的语法高亮、补全、异步 await 与现代 JS 能力。
+      </p>
+
+      <div class="grid col-2" style="margin-top:8px">
+        <div class="card" style="--glow:rgba(34,211,238,.22)">
+          <div class="head"><div class="ico-big">🌟</div><h4>mongosh（推荐）</h4></div>
+          <ul style="margin-top:6px">
+            <li>5.0 起官方主推，5.x/6.x/7.x/8.x 安装包<strong>默认仅含 mongosh</strong>。</li>
+            <li>对内置脚本对象（<code>rs.*</code>、<code>sh.*</code>、<code>db.adminCommand</code> 等）<strong>支持最完整</strong>，部分新方法仅在 mongosh 中可用。</li>
+            <li>支持 ES Module、await 异步、外部 npm 包加载。</li>
+          </ul>
+        </div>
+        <div class="card" style="--glow:rgba(167,139,250,.22)">
+          <div class="head"><div class="ico-big">🧰</div><h4>mongo（legacy shell）</h4></div>
+          <ul style="margin-top:6px">
+            <li>3.x ~ 4.x 时代的经典 Shell，4.4 及更早集群运维仍常用。</li>
+            <li>大部分 CRUD / explain 用法两者一致；写脚本可<strong>互相迁移</strong>。</li>
+            <li>5.0+ 服务端安装包<strong>不再附带</strong>，但二进制仍可独立下载使用。</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="callout info" style="margin-top:10px">
+        <div class="ico">💡</div>
+        <div class="body">
+          <strong>选型建议</strong>
+          ① <strong>操作系统内置脚本对象</strong>（如 <code>sh.status()</code>、<code>rs.status()</code>、<code>rs.conf()</code>）请优先使用 <code>mongosh</code>，新版本特性覆盖最全；
+          ② 老集群（3.6 / 4.0 / 4.2 / 4.4）若只装了 <code>mongo</code>，继续使用即可；
+          ③ 需要在脚本里使用 <code>await</code>、<code>fetch</code>、外部 npm 模块时，必须用 <code>mongosh</code>。
+        </div>
+      </div>
+
+      <p style="margin-top:10px">连接方式与 MySQL 客户端类似：指定主机、端口、认证库与用户密码；副本集常在连接串中带 <code>replicaSet</code> 参数。</p>
+
+      <pre><span class="code-tag">bash</span><code><span class="tok-cmt"># 直连单节点或经 mongos 访问（按环境替换主机、端口、用户）</span>
+mongosh <span class="tok-str">"mongodb://user:password@host1:27017,host2:27017/admin?replicaSet=rs0"</span>
+
+<span class="tok-cmt"># 老集群仍可用 legacy shell，命令完全兼容</span>
+mongo   <span class="tok-str">"mongodb://user:password@host1:27017/admin?replicaSet=rs0"</span></code></pre>
+
+      <ul>
+        <li><strong>SRV 记录</strong>：<code>mongodb+srv://...</code> 常用于云或托管服务解析种子列表。</li>
+        <li><strong>与 MySQL 对照</strong>：<code>mysql -h host -P 3306 -u user -p</code> → mongosh 通常用 URI 或
+          <code>--host</code> / <code>--port</code> / <code>--username</code> 等参数（见 <code>mongosh --help</code>）。</li>
+        <li><strong>连接字符串细节</strong>：见 <a href="11-uri-readpref.html">第 11 章 · 连接 URI &amp; readPreference</a>。</li>
+      </ul>
+    </section>
+
+    <!-- 5.2 -->
+    <section class="section" id="sec-5-2" style="--glow:rgba(167,139,250,.18)">
+      <h2><span class="ix">5.2</span>层次与命名 <span class="pill violet">概念</span></h2>
+      <table class="tbl">
+        <thead><tr><th>MongoDB</th><th>可类比 MySQL</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td><code>database</code></td><td>database</td><td><code>use &lt;db&gt;</code> 切换当前库</td></tr>
+          <tr><td><code>collection</code></td><td>table</td><td>无固定 schema，文档结构可不同</td></tr>
+          <tr><td><code>document</code></td><td>row</td><td>BSON / JSON 文档</td></tr>
+          <tr><td><code>field</code></td><td>column</td><td>嵌套对象与数组即子结构</td></tr>
+        </tbody>
+      </table>
+      <p><strong>命名空间（namespace）</strong>：<code>&lt;database&gt;.&lt;collection&gt;</code>，例如 <code>app.users</code>。</p>
+    </section>
+
+    <!-- 5.3 -->
+    <section class="section" id="sec-5-3" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">5.3</span>必会命令（交互式）<span class="pill green">交互</span></h2>
+      <pre><span class="code-tag">mongosh</span><code>show dbs                    <span class="tok-cmt">// 列出可见数据库（需权限）</span>
+use myapp                   <span class="tok-cmt">// 切换当前数据库（不存在则延后创建）</span>
+show collections            <span class="tok-cmt">// 当前库下的集合</span>
+db.<span class="tok-fn">getName</span>()                <span class="tok-cmt">// 当前库名</span></code></pre>
+      <p>对集合的操作统一写为：<code>db.&lt;集合名&gt;.&lt;方法&gt;(...)</code>，例如 <code>db.users.find()</code>。</p>
+    </section>
+
+    <!-- 5.4 -->
+    <section class="section" id="sec-5-4" style="--glow:rgba(245,158,11,.18)">
+      <h2><span class="ix">5.4</span>基础 CRUD <span class="pill amber">代码</span></h2>
+      <p>下列示例中集合名为 <code>users</code>。</p>
+
+      <div data-tabs>
+        <div class="tabs">
+          <div class="tab">插入</div>
+          <div class="tab">查询</div>
+          <div class="tab">更新</div>
+          <div class="tab">删除</div>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">javascript</span><code>db.users.<span class="tok-fn">insertOne</span>({ name: <span class="tok-str">"Alice"</span>, age: <span class="tok-num">30</span> })
+db.users.<span class="tok-fn">insertMany</span>([{ name: <span class="tok-str">"Bob"</span> }, { name: <span class="tok-str">"Carol"</span>, tags: [<span class="tok-str">"vip"</span>] }])</code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">javascript</span><code>db.users.<span class="tok-fn">find</span>()                              <span class="tok-cmt">// 全表扫描式列出（生产慎用）</span>
+db.users.<span class="tok-fn">findOne</span>({ name: <span class="tok-str">"Alice"</span> })          <span class="tok-cmt">// 一条</span>
+db.users.<span class="tok-fn">find</span>({ age: { $gte: <span class="tok-num">18</span> } }, { name: <span class="tok-num">1</span>, _id: <span class="tok-num">0</span> })  <span class="tok-cmt">// 条件 + 投影</span>
+db.users.<span class="tok-fn">find</span>().<span class="tok-fn">limit</span>(<span class="tok-num">10</span>).<span class="tok-fn">sort</span>({ age: -<span class="tok-num">1</span> }) <span class="tok-cmt">// 排序与限制条数</span></code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">javascript</span><code>db.users.<span class="tok-fn">updateOne</span>(
+  { name: <span class="tok-str">"Alice"</span> },
+  { $set: { age: <span class="tok-num">31</span> }, $currentDate: { lastModified: <span class="tok-kw">true</span> } }
+)
+db.users.<span class="tok-fn">replaceOne</span>({ name: <span class="tok-str">"Bob"</span> }, { name: <span class="tok-str">"Bob"</span>, age: <span class="tok-num">0</span> })  <span class="tok-cmt">// 整文档替换</span></code></pre>
+        </div>
+
+        <div class="tab-panel">
+<pre><span class="code-tag">javascript</span><code>db.users.<span class="tok-fn">deleteOne</span>({ name: <span class="tok-str">"Carol"</span> })
+db.users.<span class="tok-fn">deleteMany</span>({ age: { $lt: <span class="tok-num">18</span> } })</code></pre>
+        </div>
+      </div>
+
+      <h3>SQL 对照（关键词）</h3>
+      <table class="tbl">
+        <thead><tr><th>SQL</th><th>MongoDB（典型）</th></tr></thead>
+        <tbody>
+          <tr><td><code>SELECT * FROM users WHERE id = 1</code></td><td><code>db.users.find({ _id: 1 })</code></td></tr>
+          <tr><td><code>SELECT name FROM users LIMIT 10</code></td><td><code>db.users.find({}, { name: 1, _id: 0 }).limit(10)</code></td></tr>
+          <tr><td><code>INSERT INTO users ...</code></td><td><code>insertOne</code> / <code>insertMany</code></td></tr>
+          <tr><td><code>UPDATE users SET age=31 WHERE name='Alice'</code></td><td><code>updateOne</code> + <code>$set</code></td></tr>
+          <tr><td><code>DELETE FROM users WHERE ...</code></td><td><code>deleteOne</code> / <code>deleteMany</code></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout info">
+        <div class="ico">🔑</div>
+        <div class="body">
+          <strong>关于 <code>_id</code></strong>
+          若插入时不指定，服务端会生成 <strong>ObjectId</strong>。在 shell 中可用 <code>ObjectId("hexstring")</code> 构造。
+        </div>
+      </div>
+    </section>
+
+    <!-- 5.5 -->
+    <section class="section" id="sec-5-5" style="--glow:rgba(244,114,182,.18)">
+      <h2><span class="ix">5.5</span>常用查询运算符（极简）<span class="pill pink">速查</span></h2>
+      <table class="tbl">
+        <thead><tr><th>运算符</th><th>含义</th><th>示例</th></tr></thead>
+        <tbody>
+          <tr><td><code>$eq</code> / <code>$ne</code></td><td>等于 / 不等于</td><td><code>{ status: { $ne: "deleted" } }</code></td></tr>
+          <tr><td><code>$gt</code> / <code>$gte</code> / <code>$lt</code> / <code>$lte</code></td><td>比较</td><td><code>{ age: { $gte: 18 } }</code></td></tr>
+          <tr><td><code>$in</code> / <code>$nin</code></td><td>在列表中 / 不在</td><td><code>{ type: { $in: ["a", "b"] } }</code></td></tr>
+          <tr><td><code>$and</code> / <code>$or</code></td><td>与 / 或</td><td><code>{ $or: [ { a: 1 }, { b: 2 } ] }</code></td></tr>
+          <tr><td><code>$regex</code></td><td>正则</td><td><code>{ name: { $regex: /^A/ } }</code></td></tr>
+        </tbody>
+      </table>
+      <p class="text-muted"><strong>逻辑与</strong>：同一对象内多字段默认 <strong>AND</strong>。</p>
+    </section>
+
+    <!-- 5.6 -->
+    <section class="section" id="sec-5-6" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">5.6</span>索引入门 <span class="pill cyan">索引</span></h2>
+      <pre><span class="code-tag">javascript</span><code>db.users.<span class="tok-fn">createIndex</span>({ name: <span class="tok-num">1</span> }, { unique: <span class="tok-kw">true</span> })   <span class="tok-cmt">// 单字段升序，唯一</span>
+db.users.<span class="tok-fn">createIndex</span>({ lastLogin: -<span class="tok-num">1</span> })              <span class="tok-cmt">// 降序</span>
+db.users.<span class="tok-fn">getIndexes</span>()                               <span class="tok-cmt">// 查看索引</span>
+db.users.<span class="tok-fn">dropIndex</span>(<span class="tok-str">"name_1"</span>)                        <span class="tok-cmt">// 按索引名删除（名以实际为准）</span></code></pre>
+      <div class="callout warn">
+        <div class="ico">⚠</div>
+        <div class="body">
+          <strong>性能提示</strong>
+          与 MySQL 类似：大集合上无索引的 <code>find</code> 易导致 CPU/IO 压力，
+          排障时先 <code>explain("executionStats")</code>。
+        </div>
+      </div>
+    </section>
+
+    <!-- 5.7 -->
+    <section class="section" id="sec-5-7" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">5.7</span>运维常用一条命令（拓扑相关）<span class="pill green">运维</span></h2>
+      <div class="grid col-2">
+        <div class="card">
+          <div class="head"><div class="ico-big">🔗</div><h4>副本集状态</h4></div>
+          <pre style="margin-top:8px"><span class="code-tag">mongosh</span><code>rs.<span class="tok-fn">status</span>()</code></pre>
+          <div class="sub">查看成员角色与健康（需在副本集成员上执行）。</div>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">🧱</div><h4>分片集群状态</h4></div>
+          <pre style="margin-top:8px"><span class="code-tag">mongosh</span><code>sh.<span class="tok-fn">status</span>()</code></pre>
+          <div class="sub">查看分片与块分布摘要。</div>
+        </div>
+      </div>
+      <p class="text-muted">具体拓扑与在蓝鲸 DBM 中的入口见 <a href="02-cluster-topology.html">第 2 章</a>。</p>
+    </section>
+
+    <!-- 5.8 -->
+    <section class="section" id="sec-5-8" style="--glow:rgba(245,158,11,.18)">
+      <h2><span class="ix">5.8</span>边界说明 <span class="pill amber">边界</span></h2>
+      <ul>
+        <li>本章不覆盖 <strong>聚合管道（aggregation）</strong>、<strong>多文档事务</strong>、
+            <strong>Change Streams</strong>、<strong>分片键与 balancer</strong> 等；请参阅官方手册。</li>
+        <li>权限以部署侧配置的认证规则为准；
+            <code>db.runCommand({ connectionStatus: 1 })</code> 可查看当前认证用户等信息。</li>
+      </ul>
+      <div class="callout info">
+        <div class="ico">📘</div>
+        <div class="body">
+          <strong>官方入口</strong>
+          <a href="https://www.mongodb.com/docs/manual/" target="_blank" rel="noopener">MongoDB Manual</a> ·
+          <a href="https://www.mongodb.com/docs/mongodb-shell/" target="_blank" rel="noopener">mongosh 文档</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="../assets/app.js?v=20260518b"></script>
+<script>HandbookInit({ activeId:'ch05' });</script>
+</body>
+</html>

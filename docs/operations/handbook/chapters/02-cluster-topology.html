@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第 2 章 · DBM 集群形态 | MongoDB 手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css?v=20260518b" />
+<style>
+    /* 拓扑示意图（纯 CSS，无外部依赖） */
+  .topo{
+    display:grid;gap:14px;padding:18px;
+    background:#0c1730;border:1px solid var(--border);border-radius:14px;
+    margin:14px 0;
+  }
+  .topo-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .topo-node{
+    min-width:120px;padding:10px 14px;border-radius:10px;text-align:center;
+    background:linear-gradient(135deg,rgba(34,211,238,.12),rgba(167,139,250,.12));
+    border:1px solid rgba(34,211,238,.4);font-size:13px;position:relative;
+  }
+  .topo-node.cfg{background:linear-gradient(135deg,rgba(245,158,11,.12),rgba(244,114,182,.12));border-color:rgba(245,158,11,.45)}
+  .topo-node.shard{background:linear-gradient(135deg,rgba(52,211,153,.12),rgba(34,211,238,.12));border-color:rgba(52,211,153,.45)}
+  .topo-node.primary{background:linear-gradient(135deg,rgba(244,114,182,.18),rgba(239,68,68,.14));border-color:rgba(244,114,182,.55);box-shadow:0 0 0 1px rgba(244,114,182,.2),0 6px 18px -8px rgba(244,114,182,.5)}
+  .topo-node.secondary{background:linear-gradient(135deg,rgba(34,211,238,.14),rgba(99,102,241,.14));border-color:rgba(34,211,238,.45)}
+  .topo-node.backup{background:linear-gradient(135deg,rgba(52,211,153,.16),rgba(16,185,129,.14));border-color:rgba(52,211,153,.5)}
+  .topo-node b{display:block;font-size:13.5px;color:#fff;margin-bottom:2px}
+  .topo-node small{color:var(--muted);font-size:11.5px}
+  .topo-node .role-tag{
+    position:absolute;top:-9px;right:-6px;font-size:10.5px;font-weight:700;
+    padding:1px 7px;border-radius:999px;color:#0b1220;letter-spacing:.3px;
+  }
+  .topo-node .role-tag.r-p{background:linear-gradient(90deg,#f472b6,#f87171);color:#fff}
+  .topo-node .role-tag.r-s{background:linear-gradient(90deg,#22d3ee,#818cf8);color:#fff}
+  .topo-node .role-tag.r-b{background:linear-gradient(90deg,#34d399,#10b981);color:#062a1f}
+  .topo-arrow{display:flex;justify-content:center;color:#475569;font-weight:700}
+
+  /* 节点角色矩阵 */
+  .role-matrix{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:16px 0 6px;
+  }
+  .role-card{
+    border:1px solid var(--border);border-radius:14px;padding:14px 16px;
+    background:linear-gradient(160deg,rgba(15,23,42,.6),rgba(15,23,42,.3));
+    position:relative;overflow:hidden;
+  }
+  .role-card::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:3px;
+    background:var(--rc,linear-gradient(90deg,#22d3ee,#818cf8));
+  }
+  .role-card.rc-p{--rc:linear-gradient(90deg,#f472b6,#ef4444)}
+  .role-card.rc-s{--rc:linear-gradient(90deg,#22d3ee,#6366f1)}
+  .role-card.rc-b{--rc:linear-gradient(90deg,#34d399,#10b981)}
+  .role-card h4{margin:0 0 6px;font-size:14.5px;color:#e2e8f0;display:flex;align-items:center;gap:8px}
+  .role-card .badge{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:.3px}
+  .role-card.rc-p .badge{background:rgba(244,114,182,.18);color:#f9a8d4;border:1px solid rgba(244,114,182,.4)}
+  .role-card.rc-s .badge{background:rgba(34,211,238,.15);color:#67e8f9;border:1px solid rgba(34,211,238,.4)}
+  .role-card.rc-b .badge{background:rgba(52,211,153,.15);color:#6ee7b7;border:1px solid rgba(52,211,153,.4)}
+  .role-card ul{margin:8px 0 0;padding-left:18px;color:#cbd5e1;font-size:13px;line-height:1.7}
+  .role-card .kv{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .role-card .kv span{font-size:11.5px;background:rgba(148,163,184,.12);border:1px solid rgba(148,163,184,.22);color:#cbd5e1;padding:2px 8px;border-radius:6px;font-family:'JetBrains Mono',monospace}
+
+  /* 节点命名梯度卡 */
+  .name-rail{
+    display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 6px;padding:14px;
+    background:linear-gradient(135deg,rgba(15,23,42,.55),rgba(15,23,42,.25));
+    border:1px solid var(--border);border-radius:14px;
+  }
+  .name-chip{
+    padding:7px 12px;border-radius:10px;font-family:'JetBrains Mono',monospace;font-size:13px;
+    background:rgba(34,211,238,.10);border:1px solid rgba(34,211,238,.35);color:#a5f3fc;
+    display:flex;flex-direction:column;align-items:center;line-height:1.25;min-width:74px;
+  }
+  .name-chip .n{font-weight:700;letter-spacing:.4px;color:#e0f2fe}
+  .name-chip .desc{font-size:11px;color:#7dd3fc;margin-top:2px}
+  .name-chip.primary{background:rgba(244,114,182,.14);border-color:rgba(244,114,182,.45)}
+  .name-chip.primary .n{color:#fbcfe8}.name-chip.primary .desc{color:#f9a8d4}
+  .name-chip.backup{background:rgba(52,211,153,.14);border-color:rgba(52,211,153,.45)}
+  .name-chip.backup .n{color:#bbf7d0}.name-chip.backup .desc{color:#6ee7b7}
+  .name-chip.muted{opacity:.55}
+
+  /* 节点数量部署形态 */
+  .deploy-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:14px 0;
+  }
+  .deploy-card{
+    border:1px solid var(--border);border-radius:14px;padding:16px 16px 14px;
+    background:linear-gradient(160deg,rgba(15,23,42,.6),rgba(15,23,42,.3));
+    position:relative;overflow:hidden;
+  }
+  .deploy-card::before{
+    content:"";position:absolute;inset:0 0 auto 0;height:3px;
+    background:var(--dc,linear-gradient(90deg,#22d3ee,#818cf8));
+  }
+  .deploy-card.dc-1{--dc:linear-gradient(90deg,#fbbf24,#f97316)}
+  .deploy-card.dc-3{--dc:linear-gradient(90deg,#22d3ee,#6366f1)}
+  .deploy-card.dc-n{--dc:linear-gradient(90deg,#a78bfa,#ec4899)}
+  .deploy-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .deploy-head .dn{
+    width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    font-weight:800;font-size:16px;color:#0b1220;background:var(--dc);
+  }
+  .deploy-head h4{margin:0;font-size:15px;color:#e2e8f0}
+  .deploy-head .sub{font-size:12px;color:var(--muted);margin-top:2px}
+  .deploy-card .scenario{font-size:12.5px;color:#cbd5e1;margin:6px 0 8px;line-height:1.6}
+  .deploy-card .topo-mini{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px}
+  .deploy-card .topo-mini .mn{
+    font-size:11px;font-family:'JetBrains Mono',monospace;color:#cbd5e1;
+    padding:3px 8px;border-radius:6px;background:rgba(148,163,184,.12);border:1px solid rgba(148,163,184,.22);
+  }
+  .deploy-card .topo-mini .mn.p{color:#fbcfe8;background:rgba(244,114,182,.14);border-color:rgba(244,114,182,.4)}
+  .deploy-card .topo-mini .mn.b{color:#bbf7d0;background:rgba(52,211,153,.14);border-color:rgba(52,211,153,.45)}
+  .deploy-card ul{margin:6px 0 0;padding-left:18px;color:#cbd5e1;font-size:12.8px;line-height:1.65}
+  .deploy-card .tag-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .deploy-card .tag-row span{
+    font-size:11px;padding:2px 8px;border-radius:999px;
+    background:rgba(148,163,184,.12);border:1px solid rgba(148,163,184,.25);color:#cbd5e1;
+  }
+  .deploy-card .tag-row .ok{background:rgba(52,211,153,.14);border-color:rgba(52,211,153,.4);color:#86efac}
+  .deploy-card .tag-row .warn{background:rgba(245,158,11,.14);border-color:rgba(245,158,11,.4);color:#fcd34d}
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <main class="main">
+
+    <nav class="crumb">
+      <a href="../../index.html">🏠 首页</a><span class="sep">/</span>
+      <span>第 2 章</span><span class="sep">/</span>
+      <span style="color:#cbd5e1">DBM 集群形态</span>
+    </nav>
+
+    <h1 class="page-title">第 2 章 · 蓝鲸 DBM 中的集群形态</h1>
+    <p class="page-lead">
+      平台支持两类 MongoDB 集群类型，对应 <code>ClusterType</code> 中的两个常量。本章帮助你
+      <strong>把 UI 字段、代码常量和真实拓扑对应起来</strong>，便于在控制台一眼看懂角色分布。
+    </p>
+
+    <!-- 2.1 -->
+    <section class="section" id="sec-2-1" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">2.1</span>类型一：MongoReplicaSet（副本集集群）<span class="pill cyan">类型</span></h2>
+      <p>典型副本集拓扑：<strong>1 主 + 2 从（PSS）</strong>，由复制协议自动选主；其中至少一个从节点担任 <strong>backup 节点</strong>，权重 0、不可被选为 Primary，专用于跑日常备份。</p>
+
+      <div class="topo">
+        <div class="topo-row">
+          <div class="topo-node primary">
+            <span class="role-tag r-p">P</span>
+            <b>mongod (Primary)</b>
+            <small>读写主 · priority≥1</small>
+          </div>
+        </div>
+        <div class="topo-arrow">▲ oplog 复制 / 选举心跳 ▼</div>
+        <div class="topo-row">
+          <div class="topo-node secondary">
+            <span class="role-tag r-s">S</span>
+            <b>mongod (Secondary)</b>
+            <small>普通从 · 可被选主 · 可承接读</small>
+          </div>
+          <div class="topo-node backup">
+            <span class="role-tag r-b">B</span>
+            <b>mongod (Backup)</b>
+            <small>priority=0 · hidden · 跑备份</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout info">
+        <div class="ico">🛡</div>
+        <div class="body">
+          <strong>部署原则（蓝鲸 DBM 默认规范）</strong>
+          <p>除单节点测试场景外，<strong>生产副本集至少部署 3 个节点</strong>：1 个 Primary + 2 个 Secondary，确保高可用与数据冗余；<strong>2 个从节点中至少 1 个为 backup 节点</strong>，<code>priority=0</code> 永不当选 Primary，承担日常备份职责，避免备份对线上读写造成抖动。</p>
+        </div>
+      </div>
+
+      <h3 style="margin:18px 0 6px;font-size:15.5px;color:#e2e8f0">节点角色矩阵</h3>
+      <div class="role-matrix">
+        <div class="role-card rc-p">
+          <h4>Primary <span class="badge">读写主</span></h4>
+          <ul>
+            <li>唯一可接收写请求的节点</li>
+            <li>产生 oplog，供从节点回放</li>
+            <li>故障时由复制协议自动选主</li>
+          </ul>
+          <div class="kv"><span>priority ≥ 1</span><span>votes = 1</span></div>
+        </div>
+        <div class="role-card rc-s">
+          <h4>Secondary <span class="badge">普通从</span></h4>
+          <ul>
+            <li>持续从 Primary 拉取 oplog 回放</li>
+            <li>可被选举为新的 Primary</li>
+            <li>可承接 readPreference=secondary 读流量</li>
+          </ul>
+          <div class="kv"><span>priority ≥ 1</span><span>votes = 1</span><span>hidden = false</span></div>
+        </div>
+        <div class="role-card rc-b">
+          <h4>Backup <span class="badge">备份从</span></h4>
+          <ul>
+            <li><strong>priority = 0</strong>：永不当选 Primary</li>
+            <li><strong>hidden = true</strong>：客户端不可见，不分担线上读</li>
+            <li>专用于 mongodump / 物理备份，避免影响业务</li>
+          </ul>
+          <div class="kv"><span>priority = 0</span><span>votes = 1</span><span>hidden = true</span></div>
+        </div>
+      </div>
+
+      <ul>
+        <li>常量：<code>MongoReplicaSet</code></li>
+        <li>访问入口：通常以 <strong>主域名 / cluster_entry</strong> 暴露；连接串可包含 <code>replicaSet</code> 参数。</li>
+        <li>适用：数据量与写入可在单集群「多副本」满足时优先选用。</li>
+        <li>容灾：3 节点架构允许任意 1 节点宕机仍可正常读写；如需更高可用性可扩展至 5/7 节点（奇数）。</li>
+      </ul>
+
+      <div class="callout warn">
+        <div class="ico">⚠</div>
+        <div class="body">
+          <strong>为什么 backup 节点要 priority=0？</strong>
+          <p>备份过程会消耗大量磁盘 IO 与 CPU。如果 backup 节点保留选主资格，一旦 Primary 故障被选为新主，正在执行的备份任务会与突增的线上流量竞争资源，导致业务抖动。<code>priority=0</code> 从制度上杜绝了这一风险。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2.2 节点命名规范 -->
+    <section class="section" id="sec-2-2" style="--glow:rgba(167,139,250,.18)">
+      <h2><span class="ix">2.2</span>节点命名规范 <span class="pill violet">命名</span></h2>
+      <p>蓝鲸 DBM 在元数据层为副本集每个成员定义了固定的<strong>角色名（instance_role）</strong>与<strong>子域名前缀</strong>，二者一一对应。代码常量见
+        <code>backend/db_meta/enums/instance_role.py</code> 中的 <code>InstanceRole</code> 与
+        <code>backend/flow/consts.py</code> 中的 <code>MongoDBDomainPrefix</code>。</p>
+
+      <div class="name-rail">
+        <div class="name-chip primary"><span class="n">m1</span><span class="desc">Primary</span></div>
+        <div class="name-chip"><span class="n">m2</span><span class="desc">Secondary</span></div>
+        <div class="name-chip"><span class="n">m3</span><span class="desc">Secondary</span></div>
+        <div class="name-chip muted"><span class="n">m4</span><span class="desc">扩展位</span></div>
+        <div class="name-chip muted"><span class="n">m5</span><span class="desc">扩展位</span></div>
+        <div class="name-chip muted"><span class="n">m6</span><span class="desc">扩展位</span></div>
+        <div class="name-chip muted"><span class="n">m7</span><span class="desc">扩展位</span></div>
+        <div class="name-chip muted"><span class="n">m8</span><span class="desc">扩展位</span></div>
+        <div class="name-chip muted"><span class="n">m9</span><span class="desc">扩展位</span></div>
+        <div class="name-chip muted"><span class="n">m10</span><span class="desc">扩展位</span></div>
+        <div class="name-chip backup"><span class="n">backup</span><span class="desc">备份从</span></div>
+      </div>
+
+      <table class="tbl">
+        <thead>
+          <tr><th style="width:120px">角色名</th><th style="width:130px">InstanceRole 常量</th><th style="width:120px">子域名前缀</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>m1</code></td>
+            <td><code>MONGO_M1</code></td>
+            <td><code>m1.&lt;set&gt;.&lt;app&gt;.db</code></td>
+            <td><strong>Primary</strong>，唯一接收写请求的成员，<code>priority ≥ 1</code></td>
+          </tr>
+          <tr>
+            <td><code>m2 ~ m10</code></td>
+            <td><code>MONGO_M2 ~ MONGO_M10</code></td>
+            <td><code>m{2..10}.&lt;set&gt;.&lt;app&gt;.db</code></td>
+            <td><strong>Secondary</strong>，普通从节点，可被选主、可承接读流量；<code>m4~m10</code> 为扩展位（5/7/9 节点架构使用）</td>
+          </tr>
+          <tr>
+            <td><code>backup</code></td>
+            <td><code>MONGO_BACKUP</code></td>
+            <td><code>backup.&lt;set&gt;.&lt;app&gt;.db</code></td>
+            <td><strong>Backup 从</strong>，<code>priority=0 / hidden=true</code>，专跑日常备份</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout info">
+        <div class="ico">📌</div>
+        <div class="body">
+          <strong>命名约束</strong>
+          <ul style="margin:6px 0 0;padding-left:18px">
+            <li>当前 DBM 每个副本集<strong>最多支持 11 个成员</strong>：<code>m1 + m2~m10 + backup</code>，对应 <code>calculate_cluster.py</code> 中 <code>domain_prefix</code> 的 11 个槽位。</li>
+            <li>子域名前缀和角色名严格一一对应，<strong>不可自定义</strong>；例如不能把 <code>m3</code> 写成 <code>m_3</code> 或 <code>node3</code>。</li>
+            <li>分片集群的 shard 内部同样沿用这套命名（每个 shard 是一个独立副本集）；config server 副本集成员同样用 <code>m1/m2/m3/backup</code>。</li>
+            <li>分片集群的接入层 <code>mongos</code> 不属于副本集成员，使用独立子域名 <code>mongos.&lt;cluster&gt;.&lt;app&gt;.db</code>。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2.3 节点数量部署形态 -->
+    <section class="section" id="sec-2-3" style="--glow:rgba(245,158,11,.18)">
+      <h2><span class="ix">2.3</span>按节点数量分类的部署形态 <span class="pill amber">数量</span></h2>
+      <p>同一套命名规则下，副本集会根据节点数量呈现三类形态。生产场景<strong>必须</strong>选用 3 节点及以上方案。</p>
+
+      <div class="deploy-grid">
+        <!-- 1 节点 -->
+        <div class="deploy-card dc-1">
+          <div class="deploy-head">
+            <div class="dn">1</div>
+            <div>
+              <h4>单节点（Standalone）</h4>
+              <div class="sub">仅测试 / POC 场景</div>
+            </div>
+          </div>
+          <p class="scenario">仅 1 个 mongod 实例，<strong>没有高可用、没有数据冗余</strong>。DBM 中通过集群标签 <code>single_node:true</code> 标识，巡检会跳过成员数检查。</p>
+          <div class="topo-mini">
+            <span class="mn p">m1 (Primary)</span>
+          </div>
+          <ul>
+            <li>计费用最低，但宕机即整集群不可用</li>
+            <li><strong>禁止</strong>承载生产业务，不跑日常备份</li>
+            <li>典型用途：开发联调、临时压测环境</li>
+          </ul>
+          <div class="tag-row">
+            <span>无 backup 节点</span>
+            <span class="warn">不可生产</span>
+          </div>
+        </div>
+
+        <!-- 3 节点 -->
+        <div class="deploy-card dc-3">
+          <div class="deploy-head">
+            <div class="dn">3</div>
+            <div>
+              <h4>三节点 PSS（推荐）</h4>
+              <div class="sub">生产标准最小部署</div>
+            </div>
+          </div>
+          <p class="scenario">蓝鲸 DBM <strong>默认且推荐</strong>的副本集形态：<code>1 Primary + 1 Secondary + 1 Backup</code>，允许 1 节点宕机仍可读写。</p>
+          <div class="topo-mini">
+            <span class="mn p">m1</span>
+            <span class="mn">m2</span>
+            <span class="mn b">backup</span>
+          </div>
+          <ul>
+            <li>选举仲裁需要奇数票，3 节点天然满足</li>
+            <li>backup 节点 <code>priority=0 / hidden=true</code>，不抢主、不承接业务读</li>
+            <li>巡检要求：<code>set</code> 至少 3 个成员（<code>check_affinity</code> 中 <code>min_members=3</code>）</li>
+          </ul>
+          <div class="tag-row">
+            <span class="ok">高可用</span>
+            <span class="ok">日常备份</span>
+            <span>性价比最佳</span>
+          </div>
+        </div>
+
+        <!-- > 3 节点 -->
+        <div class="deploy-card dc-n">
+          <div class="deploy-head">
+            <div class="dn">N</div>
+            <div>
+              <h4>多节点（5/7/…，最大 11）</h4>
+              <div class="sub">读扩展 / 跨城多副本</div>
+            </div>
+          </div>
+          <p class="scenario">在 3 节点基础上扩容至 <strong>5 / 7 / 9 / 11</strong> 个成员（建议奇数），增加只读副本承接读流量或满足跨城容灾。</p>
+          <div class="topo-mini">
+            <span class="mn p">m1</span>
+            <span class="mn">m2</span>
+            <span class="mn">m3</span>
+            <span class="mn">m4</span>
+            <span class="mn">…</span>
+            <span class="mn b">backup</span>
+          </div>
+          <ul>
+            <li>新增成员依次占用 <code>m4 → m10</code> 槽位；<code>backup</code> 始终保留 1 个</li>
+            <li>票数过多会增加选举开销，非必要不建议超过 7 节点</li>
+            <li>跨城副本可设 <code>priority=0 + hidden=true</code> 仅作灾备从</li>
+          </ul>
+          <div class="tag-row">
+            <span>读扩展</span>
+            <span>跨城容灾</span>
+            <span class="warn">上限 11</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="callout warn">
+        <div class="ico">⚠</div>
+        <div class="body">
+          <strong>蓝鲸 DBM 的硬性约束</strong>
+          <ul style="margin:6px 0 0;padding-left:18px">
+            <li>副本集成员数最多 <strong>11 个</strong>（<code>m1~m10</code> + <code>backup</code>），由代码 <code>domain_prefix</code> 数组写死。</li>
+            <li>除带 <code>single_node:true</code> 标签的测试集群外，每个副本集 / shard <strong>必须 ≥ 3 个</strong>成员，且至少包含 1 个 <code>backup</code> 节点。</li>
+            <li>分片集群中 <code>mongos</code> 接入层至少 <strong>2 个</strong>实例（<code>min_members=2</code>），避免单点。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2.4 -->
+    <section class="section" id="sec-2-4" style="--glow:rgba(167,139,250,.18)">
+      <h2><span class="ix">2.4</span>类型二：MongoShardedCluster（分片集群）<span class="pill violet">类型</span></h2>
+      <p>由 <strong>3 类角色</strong> 协同工作：</p>
+      <div class="topo">
+        <div class="topo-row">
+          <div class="topo-node"><b>mongos #1</b><small>路由 / 接入层</small></div>
+          <div class="topo-node"><b>mongos #2</b><small>路由 / 接入层</small></div>
+        </div>
+        <div class="topo-arrow">▼</div>
+        <div class="topo-row">
+          <div class="topo-node cfg"><b>config server (RS)</b><small>元数据 / chunk 路由</small></div>
+        </div>
+        <div class="topo-arrow">▼</div>
+        <div class="topo-row">
+          <div class="topo-node shard"><b>Shard 1 (RS)</b><small>数据分片 1</small></div>
+          <div class="topo-node shard"><b>Shard 2 (RS)</b><small>数据分片 2</small></div>
+          <div class="topo-node shard"><b>Shard N (RS)</b><small>数据分片 N</small></div>
+        </div>
+      </div>
+      <ul>
+        <li>常量：<code>MongoShardedCluster</code></li>
+        <li>每个 shard 通常本身就是一个 <strong>副本集</strong>，配合 config server 提供高可用 + 横向扩展。</li>
+        <li>适用：单集群容量 / 写入需多分片线性扩展时。</li>
+      </ul>
+
+      <div class="callout warn">
+        <div class="ico">⚠</div>
+        <div class="body">
+          <strong>选型不确定时的建议</strong>
+          <p>优先选 <strong>副本集</strong>；确需水平分片再迁分片集群。详见 <a href="03-first-deploy.html#sec-3-3">§3.3 选型决策</a>。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2.5 -->
+    <section class="section" id="sec-2-5" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">2.5</span>UI 字段含义对照 <span class="pill green">速查</span></h2>
+      <p>集群列表 / 详情中常见的拓扑分组字段：</p>
+      <table class="tbl">
+        <thead><tr><th style="width:200px">字段 / 分组</th><th>含义</th><th>出现场景</th></tr></thead>
+        <tbody>
+          <tr><td><code>mongos</code></td><td>分片集群接入层实例</td><td>分片集群</td></tr>
+          <tr><td><code>mongo_config</code></td><td>Config Server 角色实例</td><td>分片集群</td></tr>
+          <tr><td><code>mongodb</code></td><td>存储节点（副本集成员或 shard 上的 mongod）</td><td>两类集群</td></tr>
+          <tr><td><code>master_domain</code> / <code>cluster_entry</code></td><td>访问入口域名 / 端口（以界面为准）</td><td>两类集群</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+  </main>
+</div>
+
+<script src="../assets/app.js?v=20260518b"></script>
+<script>HandbookInit({ activeId:'ch02' });</script>
+</body>
+</html>

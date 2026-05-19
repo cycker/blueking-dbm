@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第 3 章 · 首次部署 MongoDB | MongoDB 手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css?v=20260518b" />
+</head>
+<body>
+
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <main class="main">
+
+    <nav class="crumb">
+      <a href="../../index.html">🏠 首页</a><span class="sep">/</span>
+      <span>第 3 章</span><span class="sep">/</span>
+      <span style="color:#cbd5e1">首次部署 MongoDB</span>
+    </nav>
+
+    <h1 class="page-title">第 3 章 · 首次部署 MongoDB</h1>
+    <p class="page-lead">
+      面向<strong>从未部署过 MongoDB</strong> 的同学，介绍如何在蓝鲸 DBM 中通过<strong>标准化工单</strong>
+      驱动安装与元数据注册。本章<strong>不</strong>等同于在裸机上手工 <code>mongod</code> + 改配置。
+    </p>
+
+    <!-- 3.1 -->
+    <section class="section" id="sec-3-1" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">3.1</span>范围说明 <span class="pill cyan">边界</span></h2>
+      <ul>
+        <li>本章描述<strong>在 DBM 内首次创建 MongoDB 集群</strong> 的路径，通过工单驱动安装。</li>
+        <li><strong>不</strong>等同于在裸机执行 <code>mongod</code> 与手工改配置。</li>
+        <li>若脱离 DBM，请参考 MongoDB 官方「Install」与生产 checklist。</li>
+      </ul>
+    </section>
+
+    <!-- 3.2 -->
+    <section class="section" id="sec-3-2" style="--glow:rgba(167,139,250,.18)">
+      <h2><span class="ix">3.2</span>前置条件（Checklist） <span class="pill violet">Checklist</span></h2>
+      <div class="grid col-2">
+        <div class="card">
+          <div class="head"><div class="ico-big">🏢</div><h4>业务与云区域</h4></div>
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">
+            <li>已选 <strong>蓝鲸业务</strong></li>
+            <li>已选 <strong>云区域</strong>（<code>bk_cloud_id</code>）</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">⚙️</div><h4>平台配置</h4></div>
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">
+            <li><strong>DB 模块</strong>（按企业规范填写）</li>
+            <li><strong>城市 / 容灾亲和</strong> 等参数</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">🖥️</div><h4>主机来源</h4></div>
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">
+            <li><code>IpSource</code>：资源池 / 指定机器</li>
+            <li>详见工单详情序列化</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="head"><div class="ico-big">📦</div><h4>MongoDB 安装包</h4></div>
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">
+            <li>「介质」中已启用对应 <code>db_version</code></li>
+            <li>逻辑同 <code>list_available_versions</code> API（以 <code>Package</code> 表为准）</li>
+          </ul>
+        </div>
+        <div class="card" style="grid-column:span 2">
+          <div class="head"><div class="ico-big">🔐</div><h4>权限</h4></div>
+          <div class="sub">
+            部署类工单注册为 <code>ActionEnum.MONGODB_APPLY</code>（见 <code>mongo_replicaset_apply.py</code> /
+            <code>mongo_shard_apply.py</code> 的 <code>@builders.BuilderFactory.register</code>）；
+            实际菜单名以当前环境 <strong>IAM / 蓝鲸权限中心</strong> 为准。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3.3 -->
+    <section class="section" id="sec-3-3" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">3.3</span>选型：副本集 vs 分片集群 <span class="pill green">决策</span></h2>
+      <table class="tbl">
+        <thead><tr><th style="width:140px">维度</th><th>副本集</th><th>分片集群</th></tr></thead>
+        <tbody>
+          <tr><td><strong>适用</strong></td>
+            <td>数据量 / 写入在「多副本」内可满足</td>
+            <td>需 <strong>多分片</strong> 线性扩展</td></tr>
+          <tr><td><strong>组件</strong></td>
+            <td><code>mongod</code> 副本</td>
+            <td><code>mongos</code> + <code>config</code> + 多个 shard（每片多为副本集）</td></tr>
+          <tr><td><strong>运维复杂度</strong></td>
+            <td>相对较低</td>
+            <td>更高（路由、均衡、分片键与扩容策略）</td></tr>
+        </tbody>
+      </table>
+      <div class="callout tip">
+        <div class="ico">✅</div>
+        <div class="body">
+          <strong>建议</strong>
+          不确定时优先 <strong>副本集</strong>；确需水平分片再选 <strong>分片集群</strong>。
+        </div>
+      </div>
+    </section>
+
+    <!-- 3.4 -->
+    <section class="section" id="sec-3-4" style="--glow:rgba(245,158,11,.18)">
+      <h2><span class="ix">3.4</span>工单类型与代码常量 <span class="pill amber">常量</span></h2>
+      <table class="tbl">
+        <thead><tr><th>界面 / 单据名称</th><th>代码常量</th></tr></thead>
+        <tbody>
+          <tr><td>MongoDB 副本集集群部署</td><td><code>MONGODB_REPLICASET_APPLY</code></td></tr>
+          <tr><td>MongoDB 分片集群部署</td><td><code>MONGODB_SHARD_APPLY</code></td></tr>
+        </tbody>
+      </table>
+      <p class="text-muted" style="font-size:12.5px">
+        🔗 定义位置：<code>dbm-ui/backend/ticket/constants.py</code>（<code>MONGODB_*</code> 段，约 616~656 行）。
+      </p>
+    </section>
+
+    <!-- 3.5 -->
+    <section class="section" id="sec-3-5" style="--glow:rgba(244,114,182,.18)">
+      <h2><span class="ix">3.5</span>提单关键参数（Serializer 对齐）<span class="pill pink">字段</span></h2>
+      <p class="text-muted">
+        以下字段来自工单 Builder 的 <code>DetailSerializer</code>。表单以当前 DBM 前端为准；升级 UI 后请以
+        <code>mongo_replicaset_apply.py</code> 与 <code>mongo_shard_apply.py</code> 为准核对。
+      </p>
+
+      <div data-tabs>
+        <div class="tabs">
+          <div class="tab">副本集（MongoReplicaSetApplyDetailSerializer）</div>
+          <div class="tab">分片集群（MongoShardedClusterApplyDetailSerializer）</div>
+        </div>
+
+        <div class="tab-panel">
+          <table class="tbl">
+            <thead><tr><th>字段</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><code>bk_cloud_id</code></td><td>云区域 ID</td></tr>
+              <tr><td><code>db_app_abbr</code></td><td>业务英文缩写</td></tr>
+              <tr><td><code>cluster_type</code></td><td>集群类型常量</td></tr>
+              <tr><td><code>db_version</code></td><td>MongoDB 大版本（介质中启用）</td></tr>
+              <tr><td><code>start_port</code></td><td>起始端口</td></tr>
+              <tr><td><code>replica_count</code> / <code>node_count</code> / <code>node_replica_count</code></td><td>副本与节点数</td></tr>
+              <tr><td><code>replica_sets</code></td><td>包含 <code>set_id</code> / <code>name</code> / <code>domain</code></td></tr>
+              <tr><td><code>spec_id</code> / <code>oplog_percent</code></td><td>规格与 oplog 百分比</td></tr>
+              <tr><td><code>ip_source</code> / <code>nodes</code></td><td>资源池 / 手动指定机器</td></tr>
+              <tr><td><code>disaster_tolerance_level</code> / <code>city_code</code></td><td>容灾级别 / 城市（可选）</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="tab-panel">
+          <table class="tbl">
+            <thead><tr><th>字段</th><th>说明</th></tr></thead>
+            <tbody>
+              <tr><td><code>bk_cloud_id</code></td><td>云区域 ID</td></tr>
+              <tr><td><code>db_app_abbr</code></td><td>业务英文缩写</td></tr>
+              <tr><td><code>cluster_type</code></td><td>集群类型常量</td></tr>
+              <tr><td><code>cluster_name</code> / <code>cluster_alias</code></td><td>集群名 / 别名</td></tr>
+              <tr><td><code>db_version</code> / <code>start_port</code></td><td>版本 / 起始端口</td></tr>
+              <tr><td><code>oplog_percent</code></td><td>oplog 百分比</td></tr>
+              <tr><td><code>shard_machine_group</code></td><td>分片机器分组</td></tr>
+              <tr><td><code>shard_num</code></td><td>分片数</td></tr>
+              <tr><td><code>resource_spec</code></td><td>资源规格</td></tr>
+              <tr><td><code>ip_source</code> / <code>nodes</code></td><td>资源池 / 手动指定机器</td></tr>
+              <tr><td><code>disaster_tolerance_level</code> / <code>city_code</code></td><td>容灾级别 / 城市（可选）</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3.6 -->
+    <section class="section" id="sec-3-6" style="--glow:rgba(34,211,238,.18)">
+      <h2><span class="ix">3.6</span>提交后跟进 <span class="pill cyan">排障</span></h2>
+      <div class="steps">
+        <div class="step-item">
+          <div class="n">1</div>
+          <div class="body">
+            <h5>查看流水线节点</h5>
+            <p>打开 <strong>工单中心</strong>，确认所有节点状态为成功。</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="n">2</div>
+          <div class="body">
+            <h5>查看脚本日志</h5>
+            <p>失败时进入单据详情，查看 <strong>标准运维 / Job 平台</strong> 返回的脚本日志（路径与 MySQL/Redis 一致）。</p>
+          </div>
+        </div>
+        <div class="step-item">
+          <div class="n">3</div>
+          <div class="body">
+            <h5>常见失败方向</h5>
+            <p>资源规格不足、亲和与可用区冲突、端口占用、安装包缺失或未启用 …… 具体以校验错误信息为准。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3.7 -->
+    <section class="section" id="sec-3-7" style="--glow:rgba(52,211,153,.18)">
+      <h2><span class="ix">3.7</span>交付与验活 <span class="pill green">✅ Verify</span></h2>
+      <p>取得访问入口后，使用 <strong>mongosh</strong> 连接执行以下命令验活：</p>
+
+      <pre><span class="code-tag">javascript</span><code><span class="tok-cmt">// 通用握手 / ping</span>
+db.runCommand({ <span class="tok-fn">ping</span>: <span class="tok-num">1</span> })
+
+<span class="tok-cmt">// 查看连接信息（替代旧版 isMaster）</span>
+db.runCommand({ <span class="tok-fn">hello</span>: <span class="tok-num">1</span> })</code></pre>
+
+      <pre><span class="code-tag">javascript</span><code><span class="tok-cmt">// 副本集：查看成员状态</span>
+rs.<span class="tok-fn">status</span>()
+
+<span class="tok-cmt">// 分片集群：查看分片与块分布摘要</span>
+sh.<span class="tok-fn">status</span>()</code></pre>
+
+      <div class="callout info">
+        <div class="ico">📖</div>
+        <div class="body">
+          <strong>命令详解</strong>
+          见 <a href="05-mongosh.html">第 5 章 · mongosh Shell 入门</a>。
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="../assets/app.js?v=20260518b"></script>
+<script>HandbookInit({ activeId:'ch03' });</script>
+</body>
+</html>

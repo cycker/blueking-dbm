@@ -48,7 +48,7 @@ Redis 多为 KV/数据结构服务；Mongo 为 **文档库 + 丰富查询与索�
 
 ## 3. DBM 中的集群形态
 
-平台支持两类 MongoDB 集群（见 `dbm-ui/frontend/src/services/model/mongodb/mongodb.ts` 等前端模型与元数据 `ClusterType`）：
+平台支持两类 MongoDB 集群（对应元数据中 `ClusterType` 常量）：
 
 | 类型常量 | 说明 |
 |----------|------|
@@ -63,8 +63,6 @@ Redis 多为 KV/数据结构服务；Mongo 为 **文档库 + 丰富查询与索�
 | **mongo_config** | Config Server 角色实例 |
 | **mongodb** | 存储节点（副本集成员或 shard 上的 mongod） |
 | **master_domain / cluster_entry** | 访问入口（域名、端口等，以界面为准） |
-
-前端功能模块目录：`dbm-ui/frontend/src/views/db-manage/mongodb/`（含 `replica-set-instance-list`、`shared-cluster-instance-list`、`toolbox` 等）。
 
 ---
 
@@ -218,10 +216,6 @@ db.runCommand({ hello: 1 })
 | MongoDB 故障自愈 | `MONGODB_AUTOFIX` |
 
 **bk-dbmon 详解**（安装路径、启停、`meta`/`alarm`/`config`、与蓝鲸监控对接、Flow 入参）：见 [MongoDB bk-dbmon 使用指引](./mongodb-bk-dbmon-guide.md)。
-
-### 5.8 工单详情展示
-
-单据执行过程可在 **工单中心** 查看；部分类型有专用展示组件，路径位于 `dbm-ui/frontend/src/views/ticket-center/common/ticket-detail/components/task-info/com-factory/mongodb/`。
 
 ---
 
