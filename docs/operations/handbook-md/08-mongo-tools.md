@@ -341,4 +341,4 @@ mongofiles --uri=... -d gridfs delete big.zip
 
 ---
 
-⬅ [上一章：第 7 章 · 版本支持与升级](07-versions.md) ｜ [返回目录](README.md) ｜ [下一章：第 9 章 · 真实案例 ➡](09-cases.md)
+⬅ [上一章：第 7 章 · 版本支持与升级](07-versions.md) ｜ [返回目录](README.md) ｜ [下一章：第 9 章 · MongoDB 日志 ➡](09-mongodb-logs.md)

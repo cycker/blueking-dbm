@@ -11,6 +11,7 @@
 | ⛔ **EOL 警示** | MongoDB **2.4 ~ 4.0 及更早系列已 EOL**（生命周期结束）。老版本描述**仅作迁移与读史**，**禁止**在新环境部署。 |
 | 📚 **事实来源** | 特性与兼容性以 **MongoDB 官方手册 Release Notes / Compatibility Changes** 为准。定制发行版以厂商说明为准。 |
 | 🔗 **与蓝鲸 DBM 关系** | 「可升级版本列表」由介质包 + `MONGODB_MAJOR_MINOR_UPGRADE_CHAIN` 决定。**平台允许 ≠ 全部历史特性**。 |
+| 🛡️ **DBA 版本策略** | **一般不建议业务方自行推动或随意申请大版本升级**（此处指主次版本 **x.y**，如 4.4 → 5.0、5.0 → 6.0，**不含**同一 x.y 线下的补丁 **x.y.z**）。须在评估驱动/工具链、FCV、备份回档与回滚方案后，由 **DBA + 平台工单** 统一排期实施；EOL 强制迁移、安全漏洞等除外。 |
 | 📝 **维护方式** | 本章仅列**少量代表项**；细节、小版本补丁与弃用时间表请以官方 Release Notes 为准。 |
 
 ---
@@ -38,6 +39,26 @@
 - **存储**：长期以 **MMAPv1** 为主；**WiredTiger** 在 3.0 作为可选引擎引入。
 - **复制集**：副本集能力逐步成熟（选举、多数派语义随版本演进）。
 - **查询与索引**：文本索引、地理空间能力在 2.x ~ 3.0 期间逐步扩展。
+
+#### 2.4 存量 · GCS 平台（尚未迁入 DBM）
+
+> 📌 **现网说明**  
+> 除已纳入 **蓝鲸 DBM** 的集群外，**GCS（旧游戏云 / 存量平台）上仍有一部分 MongoDB 2.4 实例尚未迁移到 DBM**。  
+> 这类实例**不能**按本手册中「DBM 工单 + dbactuator + bk-dbmon」路径理解运维，排障与变更仍以 **GCS 单据 / 平台能力** 为主。
+
+| 维度 | GCS 存量 2.4 | 已迁入 DBM 的集群 |
+| --- | --- | --- |
+| **配置形态** | 多为 INI `logpath` / `nssize` 等（见 [第 9 章 · 日志 §9.3](09-mongodb-logs.md)） | 3.0+ YAML `mongod.conf`，由 dbconfig 模板下发 |
+| **部署 / 扩容** | GCS 安装、单进程回档等单据 | `MONGODB_REPLICASET_APPLY` 等 DBM 工单（[第 3 章](03-first-deploy.md)） |
+| **备份回档** | GCS 全量 / 部分回档流程 | bk-dbmon + mongo-toolkit / 工单回档（[第 6 章](06-bk-dbmon.md)、案例 #17） |
+| **版本策略** | **禁止新装 2.4**；存量只做收缩与迁移 | 新环境走 DBM 支持版本（通常 ≥ 4.x） |
+
+**运维建议**：
+
+1. **识别归属**：接单先确认集群在 **GCS 还是 DBM**（域名、工单入口、监控标签），避免把 DBM 操作手册套在 GCS 实例上。
+2. **规划迁出**：2.4 已 EOL，无安全补丁；优先评估 **logical 迁移**（`mongodump`/`mongorestore` 或业务双写切换）到 DBM 上新版本副本集，而非在 GCS 上原地升大版本。
+3. **已知踩坑**：namespace 过多与 `nssize`、MMAPv1 复制异常等见 [第 12 章 · 案例 #14](12-cases.md)；GCS 安装 / 回档单据见案例 **#22、#23**。
+4. **与本章关系**：下文 2.4 特性描述用于**读史与迁移评估**；**§7.6 升级清单、§7.7 驱动说明**面向 DBM 纳管后的目标版本，不直接适用于 GCS 上未迁移的 2.4 实例。
 
 ### 🔴 3.2 — EOL · [官方 ↗](https://www.mongodb.com/docs/manual/release-notes/3.2/)
 
@@ -142,6 +163,8 @@
 
 ## 7.6 升级前检查清单（通用） ✅ Checklist
 
+> ⚠️ **DBA 惯例**：**不建议**为「追新特性」或未经评估的需求做 **x.y 大版本**（主次版本）升级；业务侧应优先稳定运行，补丁级（**x.y.z**）修复在风险可控时再议。确需跨 x.y 时，走 DBM **版本升级类工单**，勿在实例上手工换包。
+
 1. **阅读 Release Notes**
    - 目标版本的 **Release Notes** + **Compatibility Changes** 全文细读。
 2. **测试环境演练**
@@ -152,6 +175,81 @@
    - 驱动、BI / 工具链兼容性矩阵全部核对一遍。
 5. **DBM 介质核对**
    - 介质包是否已上架、升级链是否包含目标主次版本，见 [第 3 章 · 首次部署](03-first-deploy.md)。
+
+---
+
+## 7.7 MongoDB 客户端驱动（Client Driver）版本说明
+
+应用连接 MongoDB 使用的是 **各语言官方 Driver**（或基于 Driver 的 ODM/框架），与 **mongosh**、**Database Tools**（`mongodump` 等）不是同一套组件。升级 Server 大版本时，**必须单独核对驱动兼容矩阵**，不能只看 DBM 介质是否支持。
+
+### 7.7.1 三类「客户端」别混用
+
+| 类型 | 代表 | 用途 | 版本对照对象 |
+| --- | --- | --- | --- |
+| **应用 Driver** | Java Sync、PyMongo、Node.js Driver、Go Driver … | 业务代码读写 MongoDB | [Driver Compatibility](https://www.mongodb.com/docs/drivers/compatibility/) |
+| **Shell** | **mongosh**（`mongo` 已弃用） | 运维交互、脚本 | [mongosh 兼容说明](https://www.mongodb.com/docs/mongodb-shell/#compatibility)（支持 3.6+ Server） |
+| **Database Tools** | `mongodump` / `mongorestore` / `mongoexport` … | 备份、迁移、批处理 | 工具主版本 ≥ Server 大版本更稳妥，见 [第 8 章](08-mongo-tools.md) |
+
+### 7.7.2 选型原则（运维给研发的检查项）
+
+1. **以官方矩阵为准**：各驱动文档中的 **「Compatibility」** 表列出「Driver 版本 × Server 版本」；升级前在测试环境用**目标 Server 版本**跑一轮读写、事务、Change Stream（若使用）。
+2. **驱动大版本跟 Server 大版本走**：Server 4.2 → 4.4 → 6.0 每跨一档，至少确认驱动 Release Notes 无 **Breaking Change**（如默认 `retryWrites`、TLS、OCSP、SRV 等）。
+3. **同一应用内只保留一条驱动栈**：例如 Java 不要混用已废弃的 **`mongo-java-driver`（legacy）** 与 **`mongodb-driver-sync` 4.x+**；Python 区分 **PyMongo** 与 **Motor**（异步封装，底层仍受 PyMongo 版本约束）。
+4. **框架版本 = 驱动版本 + 一层**：Spring Data MongoDB、Mongoose、ODM 等需同时满足其对底层 Driver 的最低要求。
+5. **功能开关与 Server 对齐**：`retryWrites`、`retryReads`、事务、Change Streams、Versioned API（5.0+）等，旧驱动连接新 Server 可能**静默降级**或运行时报错。
+
+### 7.7.3 按 Server 大版本：驱动最低档参考（速查）
+
+> 下表为 **运维沟通用的起点**，不是替代官方矩阵。具体小版本、语言、同步/异步分支以各驱动 Compatibility 页为准（[总入口](https://www.mongodb.com/docs/drivers/compatibility/)）。
+
+| Server | Java（Sync） | Python（PyMongo） | Node.js | Go |
+| --- | --- | --- | --- | --- |
+| **4.2** 🔴 EOL | 4.0+（建议 4.2+ 修 4.2.x bug） | 3.10+ | 3.5+ | 1.1+ |
+| **4.4** 🟡 | 4.1+ | 3.11+ / 4.x | 3.6+ / 4.x | 1.4+ |
+| **5.0** 🟡 | 4.3+ | 4.0+ | 4.0+ / 5.x | 1.8+ |
+| **6.0** 🟢 | 4.8+ | 4.3+ | 5.6+ / 6.x | 1.11+ |
+| **7.0** 🟢 | 4.10+ | 4.5+ | 6.x | 1.13+ |
+| **8.0** 🟣 | 5.x 系列 | 4.6+ | 6.x | 2.x |
+
+**常用官方文档入口**：
+
+| 语言 / 组件 | 文档 |
+| --- | --- |
+| Java Sync Driver | <https://www.mongodb.com/docs/drivers/java/sync/current/compatibility/> |
+| PyMongo | <https://www.mongodb.com/docs/drivers/pymongo/current/compatibility/> |
+| Node.js Driver | <https://www.mongodb.com/docs/drivers/node/current/compatibility/> |
+| Go Driver | <https://www.mongodb.com/docs/drivers/go/current/compatibility/> |
+| C# / .NET Driver | <https://www.mongodb.com/docs/drivers/csharp/current/compatibility/> |
+| C Driver | <https://www.mongodb.com/docs/drivers/c/current/compatibility/> |
+| PHP、Rust、Ruby 等 | [Drivers 总览](https://www.mongodb.com/docs/drivers/) |
+
+### 7.7.4 与 Server 特性绑定的驱动能力
+
+| Server 能力 | 驱动侧要求（概念） |
+| --- | --- |
+| **Retryable writes**（3.6+） | 驱动默认开启 `retryWrites`（Java 4.x+、PyMongo 3.11+ 等）；主从切换相关，见 [第 11 章](11-uri-readpref.md) |
+| **多文档事务**（4.0+ 副本集，4.2+ 分片） | 驱动 4.x 档 + 会话 API；分片事务还需 mongos 路由 |
+| **Change Streams**（3.6+） | 驱动需实现 Change Stream API；升级后回归消费端 |
+| **Versioned API**（5.0+） | 驱动显式声明 `serverApi`；未声明则按传统命令交互 |
+| **Queryable Encryption / FLE**（4.2+ FLE，8.0 QE 演进） | **必须**使用支持加密功能的驱动版本 +  mongocryptd / crypt_shared 等旁路组件 |
+| **SCRAM-SHA-256**（4.0+ 默认倾向） | 旧驱动若仅 SHA-1，需在 Server 或账号侧兼容配置（新环境不推荐） |
+
+### 7.7.5 升级 Server 时的驱动检查清单
+
+1. 在 [Compatibility](https://www.mongodb.com/docs/drivers/compatibility/) 查到 **目标 Server 行** 对应的 **最低驱动版本**。
+2. 阅读驱动该大版本的 **Release Notes / Upgrade Guide**（API 删除、默认 URI 参数变化）。
+3. 在测试环境验证：**连接串**（`replicaSet`、`authSource`、`readPreference`）、**事务**、**聚合管道**、**批量写**、**Change Stream**（如有）。
+4. 观察应用日志是否出现 **`not primary`**、**`KeyNotFound` 211**、**`Wire version`** 等（部分与驱动过旧或角色配置有关，案例见 [第 12 章](12-cases.md)）。
+5. 与 [§7.6 升级前检查清单](#76-升级前检查清单通用--checklist) 合并执行，勿只做二进制升级不做应用回归。
+
+### 7.7.6 蓝鲸 DBM 现网额外注意
+
+| 场景 | 说明 |
+| --- | --- |
+| **Java monitor 线程** | 旧版 **mongo-java-driver** 对分片 / 认证行为与 4.2.x 组合有已知问题；建议统一到 **MongoDB Java Driver 4.x+**，并避免业务账号绑定 `anyResource + anyAction`（案例 #04） |
+| **连接串** | 副本集务必带 `replicaSet`；从读需 `readPreference`；详见 [第 11 章](11-uri-readpref.md) |
+| **平台账号** | 通过 DBM 下发的 `app` / `monitor` 等账号，应用应使用**业务专用账号**，不要用带过高权限的模板账号连库 |
+| **运维脚本** | 值班脚本优先 **mongosh**；批备、回档用 **Database Tools**，版本要求见 [第 8 章](08-mongo-tools.md) |
 
 ---
 

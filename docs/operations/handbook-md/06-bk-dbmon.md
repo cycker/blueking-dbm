@@ -150,6 +150,8 @@ sh stop.sh           # 停止
 ./bk-dbmon config set --port all -s parselog -k enable -V false
 ```
 
+**parselog** 默认开启：tail 实例 `mongo.log`，将 **2.4 文本 / 3.0～4.2 文本 / 4.4+ JSON** 等形态统一写成 **`jsonlog/` 下 JSON 行**（不改动源日志）。解析器版本、输出路径与限流见 [第 9 章 · MongoDB 日志](09-mongodb-logs.md)。
+
 具体 segment / key 以 `bk-dbmon config` 在线帮助与版本为准。
 
 ### 连接 mongosh
@@ -171,8 +173,8 @@ bk-dbmon 内置 **backup** 段，是 MongoDB 集群**日常备份的执行者**�
 | 维度 | 说明 |
 |------|------|
 | 🎯 **谁来备份** | 副本集：**backup 节点** 独占执行<br/>分片集群：**每个 shard 的 backup 节点** + **configsvr 的 backup 节点** |
-| ⏰ **什么时候备** | 默认**每天一次**，业务低峰窗口（如 02:00-06:00）；由 dbmon 巡检调度，无需手工触发 |
-| 📦 **怎么备** | 逻辑备份 `mongodump`（默认）<br/>产物落盘 `/data/dbbak/mg/mongodump/`<br/>可选 gzip 压缩 |
+| ⏰ **什么时候备** | 默认在业务低峰窗口（如 02:00-06:00）调度；由 dbmon 巡检触发，无需手工执行 |
+| 📦 **怎么备** | `AUTO` 模式：按间隔自动选择 **FULL 全量** 或 **INCR 增量 oplog**<br/>产物落盘 `/data/dbbak/mg/mongodump/`<br/>可选 gzip / zstd 压缩 |
 
 ### 备份执行流程
 
@@ -181,12 +183,38 @@ bk-dbmon 内置 **backup** 段，是 MongoDB 集群**日常备份的执行者**�
 3. **打包 / 上报元数据**：备份完成后压缩成 `.tar` 或 `.tar.gz`，并把**备份元数据**（集群、实例、起止时间、文件大小、状态）写到本地 `report` 目录，由 **bkmonitorbeat** 上报蓝鲸监控。
 4. **过期清理**：按 `backup.keepDays` 清理本机 `/data/dbbak/mg/mongodump/` 下的过期文件，避免占满磁盘；如对接对象存储/备份系统，则在上传成功后由保留策略统一清理。
 
+### 增量备份策略（PITR）
+
+MongoDB 的增量备份不是“复制一份新增数据文件”，而是基于副本集 **oplog**：全备作为基准，后续周期性导出 `local.oplog.rs` 中的变更记录。PITR 回档时先恢复最近一次 FULL，再按时间顺序回放 INCR oplog 文件到目标时间点。
+
+| 备份类型 | 内容 | 典型间隔 | 用途 |
+|----------|------|----------|------|
+| **FULL 全量** | `mongodump` 导出的完整逻辑备份 | `fullFreq=86400`（约 1 天） | 定点恢复的基准 |
+| **INCR 增量** | `local.oplog.rs` 的 oplog 片段 | `incrFreq=3600`（约 1 小时） | 叠加在 FULL 之后，恢复到更细时间点 |
+| **AUTO 自动** | 由工具按 `fullFreq` / `incrFreq` 判断本次该做 FULL 还是 INCR | dbmon 默认调用模式 | 日常备份推荐方式 |
+
+增量备份产物命名遵循 DBM 规约：
+
+```text
+mongodump-{name}-FULL-{ip}-{port}-{ymdh}-{yyyymmddHHMMSS}.archive.gz
+mongodump-{name}-INCR-{ip}-{port}-{ymdh}-{i}-{yyyymmddHHMMSS}.oplog.rs.bson.gz
+```
+
+> ⚠ **增量备份依赖 oplog 窗口**
+>
+> 如果业务写入量很大、oplog 太小，导致上次增量点已经被覆盖，则 INCR 链会断，PITR 只能回到最近可用 FULL 或重新做全备。部署时的 `oplog_percent`、运行期的 `Oplog Window` 监控都需要一起关注。
+
+> 📌 **分片集群注意**
+>
+> 分片集群需要每个 shard（以及 configsvr）各自形成 FULL + INCR 链。恢复到一致时间点时，必须使用同一目标时间组织各分片的增量回放；不要只恢复某一个 shard 的 INCR。
+
 ### 关键参数（segment：`backup`）
 
 | key | 含义 | 典型值 |
 |-----|------|--------|
 | `enable` | 是否开启日常备份；关闭后该实例完全跳过备份调度 | `true` |
-| `fullFreq` | 全量备份频率（天）；多数集群为每日一次 | `1` |
+| `fullFreq` / `full_freq` | 全量备份间隔；多数集群为每日一次 | `86400` 秒 |
+| `incrFreq` / `incr_freq` | 增量备份间隔；用于 PITR oplog 链 | `3600` 秒 |
 | `startTime` / `endTime` | 允许执行备份的**窗口时段**，错开业务高峰 | `02:00` - `06:00` |
 | `keepDays` | 本机备份保留天数 | `3` - `7` |
 | `gzip` | 是否开启 gzip 压缩，节省磁盘但增加 CPU | `true` |
@@ -259,4 +287,4 @@ bk-dbmon 安装包在流程中通过 `Package.get_latest_package(..., pkg_type="
 
 ---
 
-[← 第 5 章 mongosh](05-mongosh.md) | [↑ 返回目录](README.md) | [第 7 章 版本与兼容性 →](07-versions.md)
+[← 第 5 章 mongosh](05-mongosh.md) | [↑ 返回目录](README.md) | [第 7 章 版本与兼容性 →](07-versions.md) · [第 13 章 性能视图](13-performance-views.md)

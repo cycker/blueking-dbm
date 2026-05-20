@@ -1,26 +1,28 @@
-# 第 9 章 · 业务案例集（IegMongoTeam 实战）
+# 第 12 章 · 业务案例集（IegMongoTeam 实战）
 
 > 汇总来自 **IegMongoTeam iWiki 知识库** 的真实业务案例，按 **故障 / 性能 / 拓扑 / 备份回档 / 迁移扩缩容 / 工具 / 单据指引** 七大主题分类。每个案例都包含 **背景 → 现象 → 定位 → 解决 → 经验** 五段式，便于按图索骥。
 
 ## 案例总览
 
-| 指标 | 数值 |
-|---|---|
-| 📂 案例总数 | 22 |
-| 🐛 Bug & 故障 | 7 |
-| 🐌 性能 / 慢查询 | 5 |
-| 🚚 迁移 / 备份 / 单据 | 10 |
+
+| 指标              | 数值  |
+| --------------- | --- |
+| 📂 案例总数         | 22  |
+| 🐛 Bug & 故障     | 7   |
+| 🐌 性能 / 慢查询     | 5   |
+| 🚚 迁移 / 备份 / 单据 | 10  |
+
 
 ---
 
-## 10.1 Bug & 故障类
+## 12.1 Bug & 故障类
 
 ### 案例 #01 · 4.2.0~4.2.5 KeyNotFound · config 会话缓存爆 100w 〔P0〕
 
 - **业务**：job MongoDB 集群（2021-06）
 - **版本**：4.2.5
 - **标签**：`SERVER-42827` `KeyNotFound` `HMAC` `分片集群`
-- **iWiki**：<https://iwiki.woa.com/p/924427245>
+- **iWiki**：[https://iwiki.woa.com/p/924427245](https://iwiki.woa.com/p/924427245)
 
 **摘要**：Java driver monitor 线程报 `error 211 KeyNotFound`，Cache Reader No keys found for HMAC，分片命令失败、chunk 迁移失败、无法访问 config primary。
 
@@ -49,7 +51,7 @@ com.mongodb.MongoCommandException: Command failed with error 211 (KeyNotFound):
 
 - **版本**：任意
 - **标签**：`Docker` `urandom` `内核` `crash`
-- **iWiki**：<https://iwiki.woa.com/p/948332906>
+- **iWiki**：[https://iwiki.woa.com/p/948332906](https://iwiki.woa.com/p/948332906)
 
 **摘要**：mongod/mongos 崩溃，日志关键字 `cannot open /dev/urandom Operation not permitted`，与特定 Docker / 内核版本相关。
 
@@ -73,11 +75,11 @@ com.mongodb.MongoCommandException: Command failed with error 211 (KeyNotFound):
 
 - **版本**：4.2.0 / 4.2.1 / 4.2.2 / 4.2.3 / 4.2.4 / 4.2.5
 - **标签**：`session 泄漏` `LogicalSession`
-- **iWiki**：<https://iwiki.woa.com/p/948332906>
+- **iWiki**：[https://iwiki.woa.com/p/948332906](https://iwiki.woa.com/p/948332906)
 
 **摘要**：4.2 系列且 ≤ 4.2.5 的版本存在 session 不释放问题，会逐步耗尽资源。
 
-**📖 背景**：参考社区文章：<https://mongoing.com/archives/73811>
+**📖 背景**：参考社区文章：[https://mongoing.com/archives/73811](https://mongoing.com/archives/73811)
 
 **🔎 现象**：连接数持续累积，session 不被回收；最终影响新连接建立。
 
@@ -93,7 +95,7 @@ com.mongodb.MongoCommandException: Command failed with error 211 (KeyNotFound):
 
 - **版本**：任意
 - **标签**：`Java driver` `anyAction` `签名` `keyId=0`
-- **iWiki**：<https://iwiki.woa.com/p/948332906>
+- **iWiki**：[https://iwiki.woa.com/p/948332906](https://iwiki.woa.com/p/948332906)
 
 **摘要**：monitor 线程每 10s 一次 isMaster，偶发 `error 211 KeyNotFound`。根因是账号配置了 **anyResource + anyAction** 角色。
 
@@ -124,7 +126,7 @@ db.system.roles.deleteOne({_id:"admin.applyOps"})
 
 - **版本**：≥ 3.6
 - **标签**：`副本集` `shardsvr` `LogicalSessions`
-- **iWiki**：<https://iwiki.woa.com/p/948332906>
+- **iWiki**：[https://iwiki.woa.com/p/948332906](https://iwiki.woa.com/p/948332906)
 
 **摘要**：连接数不多却返回 `TooManyLogicalSessions`，根因是 RS 模式下错误启用了 `clusterRole: shardsvr`。
 
@@ -144,7 +146,7 @@ db.system.roles.deleteOne({_id:"admin.applyOps"})
 
 - **版本**：任意
 - **标签**：`system.sessions` `balancer`
-- **iWiki**：<https://iwiki.woa.com/p/948332906>
+- **iWiki**：[https://iwiki.woa.com/p/948332906](https://iwiki.woa.com/p/948332906)
 
 **摘要**：`config.session` 表始终不开启 sharding，间歇性产生热点。
 
@@ -164,7 +166,7 @@ db.system.roles.deleteOne({_id:"admin.applyOps"})
 
 - **版本**：任意
 - **标签**：`exporter` `监控` `hidden`
-- **iWiki**：<https://iwiki.woa.com/p/948332906>
+- **iWiki**：[https://iwiki.woa.com/p/948332906](https://iwiki.woa.com/p/948332906)
 
 **摘要**：mongodb_exporter 访问 hidden 节点失败，导致 hidden 节点性能数据缺失。
 
@@ -180,14 +182,14 @@ db.system.roles.deleteOne({_id:"admin.applyOps"})
 
 ---
 
-## 10.2 性能 / 慢查询类
+## 12.2 性能 / 慢查询类
 
 ### 案例 #08 · `$or` vs `$in` · cmdb 10s 超时 〔P1〕
 
 - **业务**：bk-cloud-cmdb (蓝鲸)（2021-10）
 - **版本**：4.2.x
 - **标签**：`$or` `$in` `慢查询` `索引`
-- **iWiki**：<https://iwiki.woa.com/p/1283428328>
+- **iWiki**：[https://iwiki.woa.com/p/1283428328](https://iwiki.woa.com/p/1283428328)
 
 **摘要**：cmdb 查询大量 IP 列表用 `$or + $and` 拼接，**10 秒超时**；改写为 `$in` 后耗时降至 **0.03s**。
 
@@ -223,7 +225,7 @@ db.cc_HostBase.find({
 })
 ```
 
-> 💡 **经验**：**同字段等值列表必须用 `$in`**，禁止用 `$or`；官方文档明确建议（[`$or` vs `$in`](https://docs.mongodb.com/manual/reference/operator/query/or/)）。
+> 💡 **经验**：**同字段等值列表必须用 `$in`**，禁止用 `$or`；官方文档明确建议（`[$or` vs `$in](https://docs.mongodb.com/manual/reference/operator/query/or/)`）。
 
 ---
 
@@ -232,7 +234,7 @@ db.cc_HostBase.find({
 - **业务**：bk-cloud-cmdb（2023-11）
 - **版本**：4.2.5
 - **标签**：`partialIndex` `COLLSCAN` `索引未命中`
-- **iWiki**：<https://iwiki.woa.com/p/4009224534>
+- **iWiki**：[https://iwiki.woa.com/p/4009224534](https://iwiki.woa.com/p/4009224534)
 
 **摘要**：`cc_HostBase` 简单等值 `find({bk_agent_id:"..."})` 走 COLLSCAN 扫 34w 行；根因是 partial index 的过滤条件需要在查询中显式重述。
 
@@ -267,7 +269,7 @@ db.cc_HostBase.find({
 - **业务**：璀璨星途
 - **版本**：≥ 4.4
 - **标签**：`warmMinConnections` `连接池` `冷启动`
-- **iWiki**：<https://iwiki.woa.com/p/1283429950>
+- **iWiki**：[https://iwiki.woa.com/p/1283429950](https://iwiki.woa.com/p/1283429950)
 
 **摘要**：压测启动后第一波 DB 查询 ≥ 3s，后续恢复正常；与 mongos→shardsvr 连接池建立有关。
 
@@ -287,7 +289,7 @@ db.cc_HostBase.find({
 
 - **版本**：3.6
 - **标签**：`planCache` `索引` `explain`
-- **iWiki**：<https://iwiki.woa.com/p/4008458397>
+- **iWiki**：[https://iwiki.woa.com/p/4008458397](https://iwiki.woa.com/p/4008458397)
 
 **摘要**：explain 显示走索引，**实际执行**却没有；清空计划缓存后恢复。
 
@@ -332,14 +334,14 @@ db.collection.getPlanCache().clear()
 
 ---
 
-## 10.3 拓扑 / 分片类
+## 12.3 拓扑 / 分片类
 
 ### 案例 #13 · tetris · system.sessions 未分片造成单点 〔P1〕
 
 - **业务**：tetris 俄罗斯方块环游记（2021-08）
 - **版本**：4.2.x
 - **标签**：`system.sessions` `分片` `热点`
-- **iWiki**：<https://iwiki.woa.com/p/931103071>
+- **iWiki**：[https://iwiki.woa.com/p/931103071](https://iwiki.woa.com/p/931103071)
 
 **摘要**：分片集群中 `config.system.sessions` 仅在单 shard，mongos 周期性同步导致单节点 CPU 飙高。
 
@@ -369,7 +371,7 @@ command config.$cmd update { update: "system.sessions",
 
 - **版本**：2.4
 - **标签**：`nssize` `复制` `STARTUP2`
-- **iWiki**：<https://iwiki.woa.com/p/4014259309>
+- **iWiki**：[https://iwiki.woa.com/p/4014259309](https://iwiki.woa.com/p/4014259309)
 
 **摘要**：backup 节点不断 resync，状态卡在 STARTUP2；日志报 `too many namespaces/collections`。
 
@@ -396,7 +398,7 @@ replSet initial sync exception: 10081 too many namespaces/collections
 
 - **版本**：4.2 / 100.7.1
 - **标签**：`mongodump` `CLB` `会话保持`
-- **iWiki**：<https://iwiki.woa.com/p/4008173577>
+- **iWiki**：[https://iwiki.woa.com/p/4008173577](https://iwiki.woa.com/p/4008173577)
 
 **摘要**：通过**域名 / VIP** 连 mongos 跑 mongodump 报 `CursorNotFound`；直连 mongos IP 不报错。
 
@@ -425,7 +427,7 @@ error reading collection: (CursorNotFound) Cursor not found
 
 - **版本**：任意
 - **标签**：`configsvr` `mongos` `替换`
-- **iWiki**：<https://iwiki.woa.com/p/4006818693>
+- **iWiki**：[https://iwiki.woa.com/p/4006818693](https://iwiki.woa.com/p/4006818693)
 
 **摘要**：分片集群中 configsvr 与 mongos 的"无中断"替换 5 步法。
 
@@ -447,13 +449,13 @@ error reading collection: (CursorNotFound) Cursor not found
 
 ---
 
-## 10.4 备份 / 回档类
+## 12.4 备份 / 回档类
 
 ### 案例 #17 · 4.2 分片集群 Restore 完整流程 〔P1〕
 
 - **版本**：4.2
 - **标签**：`mongodump` `mongorestore` `clusterId`
-- **iWiki**：<https://iwiki.woa.com/p/4010429492>
+- **iWiki**：[https://iwiki.woa.com/p/4010429492](https://iwiki.woa.com/p/4010429492)
 
 **摘要**：官方未提供基于 mongodump/mongorestore 的分片集群备份方案；本案例摸索出 **standalone → 维护元数据 → 启动** 的完整路径。
 
@@ -491,14 +493,14 @@ error reading collection: (CursorNotFound) Cursor not found
 
 ---
 
-## 10.5 迁移 / 扩缩容类
+## 12.5 迁移 / 扩缩容类
 
 ### 案例 #18 · xssh · 5 区分服 mongos/shard 缩容 〔P1〕
 
 - **业务**：xssh 小森生活（2022-07）
 - **版本**：任意
 - **标签**：`缩容` `机型变更` `分服`
-- **iWiki**：<https://iwiki.woa.com/p/931103786>
+- **iWiki**：[https://iwiki.woa.com/p/931103786](https://iwiki.woa.com/p/931103786)
 
 **摘要**：5 个分服（iosqq/ioswx/androidqq/androidwx/游客服），mongos 从 16 个 D12-30-100-10 缩到 6 个 D4-15-100-10；shard 从 D7-29-300-10-Z 缩到 D4-20-100-10-Z。
 
@@ -523,9 +525,9 @@ error reading collection: (CursorNotFound) Cursor not found
 - **业务**：vega 街霸（2021-07）
 - **版本**：任意
 - **标签**：`合服` `mongodump` `mongorestore`
-- **iWiki**：<https://iwiki.woa.com/p/863430064>
+- **iWiki**：[https://iwiki.woa.com/p/863430064](https://iwiki.woa.com/p/863430064)
 
-**摘要**：将 sq 后 30 个分服合并到前 10 个分服：S11~S40 → S01~S10，按 4 节点一组合并。
+**摘要**：将 sq 后 30 个分服合并到前 10 个分服：S11~~S40 → S01~~S10，按 4 节点一组合并。
 
 **📖 背景**：街霸合服需求，4 个分服合并为 1 个。
 
@@ -548,7 +550,7 @@ error reading collection: (CursorNotFound) Cursor not found
 
 - **版本**：任意
 - **标签**：`扩容` `缩容` `GCS 单据`
-- **iWiki**：<https://iwiki.woa.com/p/284630719>
+- **iWiki**：[https://iwiki.woa.com/p/284630719](https://iwiki.woa.com/p/284630719)
 
 **摘要**：通过 **新增 SECONDARY → 域名切换 → 下架旧实例** 的单据序列完成扩缩容。
 
@@ -575,13 +577,13 @@ error reading collection: (CursorNotFound) Cursor not found
 
 ---
 
-## 10.6 工具集
+## 12.6 工具集
 
 ### 案例 #21 · MongoDB 慢查询分析工具（基于 ES + Grafana） 〔P2〕
 
 - **版本**：任意
 - **标签**：`慢查询` `Grafana` `火焰图` `ES`
-- **iWiki**：<https://iwiki.woa.com/p/278981241>
+- **iWiki**：[https://iwiki.woa.com/p/278981241](https://iwiki.woa.com/p/278981241)
 
 **摘要**：从 ES 拉慢查询日志，写入 spider 集群，通过 Grafana 提供曲线/饼图/火焰图/表格多视图，支持 **业务→集群→实例** 三级下钻分析。
 
@@ -605,13 +607,13 @@ error reading collection: (CursorNotFound) Cursor not found
 
 ---
 
-## 10.7 单据指引
+## 12.7 单据指引
 
 ### 案例 #22 · GCS 单据指引 · 安装 MongoDB 〔P2〕
 
 - **版本**：任意
 - **标签**：`GCS 单据` `安装` `部署`
-- **iWiki**：<https://iwiki.woa.com/p/284630719>
+- **iWiki**：[https://iwiki.woa.com/p/284630719](https://iwiki.woa.com/p/284630719)
 
 **摘要**：副本集 / 分片集群两种安装路径；不同副本集端口错开便于后续合并；单机多实例 WTCacheSize 总和 ≤ 内存 60%。
 
@@ -638,8 +640,8 @@ error reading collection: (CursorNotFound) Cursor not found
 3. 安装 mongos
 4. 连 mongos 执行 `sh.addShard` 加分片
 5. 关闭 balancer + 设 chunkSize（默认 64M，最大 1024M）：
-   - `sh.setBalancerState(false)`
-   - `db.getSisterDB('config').settings.save({_id:'chunksize', value:512})`
+  - `sh.setBalancerState(false)`
+  - `db.getSisterDB('config').settings.save({_id:'chunksize', value:512})`
 6. 执行"激活 Mongos 域名" + "部署监控"
 7. 建库表：`sh.enableSharding` + `sh.shardCollection`
 
@@ -651,7 +653,7 @@ error reading collection: (CursorNotFound) Cursor not found
 
 - **版本**：任意
 - **标签**：`回档` `构造数据` `recover`
-- **iWiki**：<https://iwiki.woa.com/p/284630719>
+- **iWiki**：[https://iwiki.woa.com/p/284630719](https://iwiki.woa.com/p/284630719)
 
 **摘要**：区分**部分数据回档**（受影响玩家可枚举）与**全量数据回档**（影响全服）两种方案。
 
@@ -686,7 +688,7 @@ error reading collection: (CursorNotFound) Cursor not found
 
 - **版本**：任意
 - **标签**：`故障替换` `RECOVERING` `fsyncLock`
-- **iWiki**：<https://iwiki.woa.com/p/284630719>
+- **iWiki**：[https://iwiki.woa.com/p/284630719](https://iwiki.woa.com/p/284630719)
 
 **摘要**：机器故障时通过 so.ied.com 申请新机 → 部署 tmp 节点 → 故障替换单据 → 部署监控 → 下架旧节点。
 
@@ -720,6 +722,5 @@ db.fsyncUnlock()  // 在 B 上执行
 
 ## 章节导航
 
-- ⬅️ 上一章：[第 8 章 · MongoDB 工具集](08-mongo-tools.md)
-- ➡️ 下一章：[第 10 章 · URI 与 Read Preference](10-uri-readpref.md)
-- 🏠 [返回目录](README.md)
+⬅️ [上一章 · 第 11 章 URI 与 Read Preference](11-uri-readpref.md) ｜ [📖 返回目录](README.md) ｜ [下一章 · 第 13 章 DBM 性能视图 ➡️](13-performance-views.md)
+

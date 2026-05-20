@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第 10 章 · MongoDB 索引设计与优化 | MongoDB 手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css?v=20260520c" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <nav class="crumb"><a href="../index.html">🏠 首页</a><span class="sep">/</span><span>第 10 章</span><span class="sep">/</span><span style="color:#cbd5e1">第 10 章 · MongoDB 索引设计与优化</span></nav>
+    <h1 class="page-title">第 10 章 · MongoDB 索引设计与优化</h1>
+    <p class="page-lead">索引是 MongoDB 性能优化的<strong>第一抓手</strong>。一条没有命中索引的全表扫描，足以让一个看似毫不起眼的 SQL 把整套副本集拖成 P0。</p>
+<div class="callout info"><div class="ico">💡</div><div class="body">本章从 <strong>B-Tree 物理结构 → 索引家族 → ESR 黄金法则 → explain 解读 → 真实业务踩坑</strong> 一站式串通，所有案例均来自 IegMongoTeam 知识库与蓝鲸生产现场。</div></div>
+<section class="section" id="101-为什么必须建索引">
+  <h2><span class="ix">10.1</span>为什么必须建索引</h2>
+<p>把表想成一摞 <strong>无序卡片</strong>：</p>
+<table class="tbl"><thead><tr><th>对比维度</th><th>📚 无索引：COLLSCAN（全表扫描）</th><th>🌳 有索引：IXSCAN（B-Tree）</th></tr></thead><tbody>
+<tr><td>算法复杂度</td><td><strong>O(N)</strong> 逐张翻牌</td><td><strong>O(log N)</strong> 千万行 4~5 层定位</td></tr>
+<tr><td>千万级查询</td><td>需扫 1000 万次</td><td>通常 &lt;1 ms</td></tr>
+<tr><td>资源消耗</td><td>CPU、内存（page-in WT cache）、IO 全吃</td><td>叶子节点存「<code>indexedField</code> → <code>RecordId</code>」对，命中后再 FETCH 文档</td></tr>
+<tr><td>底层结构</td><td>—</td><td>WiredTiger 维护 B-Tree（默认 B+Tree 变体）</td></tr>
+</tbody></table>
+<h3>一个直观对比</h3>
+<pre><code class="language-javascript">// mongosh
+// 假设 cmdb.cc_HostBase 共 345209 行
+db.cc_HostBase.find({ bk_agent_id: &quot;02000...&quot; }).explain(&quot;executionStats&quot;)
+// 无索引：
+//   stage: &quot;COLLSCAN&quot;, docsExamined: 345209, executionTimeMillis: 1457
+// 有索引（IXSCAN）：
+//   stage: &quot;FETCH&quot; -&gt; &quot;IXSCAN&quot;, keysExamined: 1, docsExamined: 1, time: 0~3ms</code></pre>
+<div class="callout info"><div class="ico">💡</div><div class="body">💡 <strong>建索引的代价</strong> ① 写入额外维护索引页 → INSERT/UPDATE 变慢； ② 占用磁盘（每个索引一份独立 B-Tree）； ③ WiredTiger Cache 中索引也要常驻热数据。 所以「<strong>有用就建、无用即删</strong>」是铁律，不要无脑加。</div></div>
+</section>
+<section class="section" id="102-索引家族全景">
+  <h2><span class="ix">10.2</span>索引家族全景</h2>
+<p>MongoDB 把索引按<strong>结构</strong>与<strong>修饰属性</strong>两条线划分，下表是蓝鲸场景下最常见的 12 种。</p>
+<table class="tbl"><thead><tr><th>类型</th><th>起始版本</th><th>说明</th></tr></thead><tbody>
+<tr><td>🔑 <strong>Single Field</strong></td><td>v1.0+</td><td>最基础的单字段索引，<code>{ field: 1 }</code> 升序、<code>-1</code> 降序。<code>_id</code> 默认就是单字段唯一索引。</td></tr>
+<tr><td>🧩 <strong>Compound 复合索引</strong></td><td>v1.0+</td><td>多字段联合：<code>{ a:1, b:1, c:-1 }</code>。顺序敏感，遵循 <strong>ESR 法则</strong>（见 10.4）。</td></tr>
+<tr><td>🪢 <strong>Multikey 数组索引</strong></td><td>v1.0+</td><td>字段为数组时自动展开建索引；<strong>每个数组元素一条索引项</strong>，膨胀风险大。</td></tr>
+<tr><td>📝 <strong>Text 全文索引</strong></td><td>v2.4+</td><td><code>{ content: &quot;text&quot; }</code>，支持分词与权重；同一集合<strong>只能有一个</strong>。</td></tr>
+<tr><td>🗺 <strong>2dsphere 地理索引</strong></td><td>v2.4+</td><td>GeoJSON 经纬度球面索引，<code>$near / $geoWithin</code> 查询必备。</td></tr>
+<tr><td>🎯 <strong>Hashed Index</strong></td><td>v2.4+</td><td>Hash(field) 建索引，<strong>分片键打散</strong>常用；不支持范围查询。</td></tr>
+<tr><td>🧤 <strong>Partial 部分索引</strong></td><td>v3.2+</td><td><code>partialFilterExpression</code> 只对满足条件的文档建索引；<strong>查询条件必须重复表达式</strong>才能命中（见 10.7 案例）。</td></tr>
+<tr><td>🚿 <strong>Sparse 稀疏索引</strong></td><td>v1.8+</td><td>字段不存在的文档不入索引；<strong>大多数场景已被 Partial 取代</strong>。</td></tr>
+<tr><td>🦋 <strong>Wildcard Index</strong></td><td>v4.2+</td><td><code>{ &quot;$**&quot;: 1 }</code> 对任意（动态）字段建索引；<strong>动态 Schema 救命稻草</strong>，但代价高。</td></tr>
+<tr><td>⏳ <strong>TTL 过期索引</strong></td><td>v2.2+</td><td><code>expireAfterSeconds</code>，到点后台删除；<strong>session/log/缓存</strong>清理利器。</td></tr>
+<tr><td>🔒 <strong>Unique 唯一</strong></td><td>v1.0+</td><td>字段属性，可叠加在 Single/Compound 上。<strong>分片表唯一约束需含分片键</strong>。</td></tr>
+<tr><td>🎯 <strong>Clustered 簇集索引</strong></td><td>v5.3+</td><td><code>clusteredIndex: {key:{_id:1}}</code> 数据按 _id 物理排序；<strong>时序集合的特殊用法</strong>。</td></tr>
+</tbody></table>
+</section>
+<section class="section" id="103-建-看-删-索引-速查">
+  <h2><span class="ix">10.3</span>建 / 看 / 删 索引 · 速查</h2>
+<h3>创建</h3>
+<pre><code class="language-javascript">// 单字段（升序）
+db.users.createIndex({ uid: 1 })
+
+// 复合 + 命名 + 后台（4.2+ 已统一为非阻塞，参数保留兼容）
+db.orders.createIndex(
+  { uid: 1, status: 1, createTime: -1 },
+  { name: &quot;idx_uid_status_ts&quot;, background: true }
+)
+
+// 唯一
+db.users.createIndex({ email: 1 }, { unique: true })
+
+// Partial（只对 active=true 建索引）
+db.tasks.createIndex(
+  { status: 1 },
+  { partialFilterExpression: { active: true } }
+)
+
+// TTL：会话超时 30 天自动删
+db.sessions.createIndex({ lastSeen: 1 }, { expireAfterSeconds: 2592000 })
+
+// Text + 权重
+db.posts.createIndex(
+  { title: &quot;text&quot;, body: &quot;text&quot; },
+  { weights: { title: 10, body: 1 }, default_language: &quot;none&quot; }
+)</code></pre>
+<h3>查看</h3>
+<pre><code class="language-javascript">// 看所有索引
+db.orders.getIndexes()
+
+// 看大小（哪个索引最占空间）
+db.orders.stats().indexSizes
+
+// 整库索引大小
+db.runCommand({ dbStats: 1, scale: 1024*1024 }).indexSize
+
+// 索引使用统计（最关键！未使用的索引是债务）
+db.orders.aggregate([{ $indexStats: {} }])
+
+// 看某条 SQL 走哪条索引
+db.orders.find({ uid:1, status:&quot;PAID&quot; }).explain(&quot;executionStats&quot;)</code></pre>
+<h3>删除</h3>
+<pre><code class="language-javascript">// 按名删（推荐：getIndexes 里看到的 name）
+db.orders.dropIndex(&quot;idx_uid_status_ts&quot;)
+
+// 按 spec 删
+db.orders.dropIndex({ uid:1, status:1 })
+
+// 一次性删全部（保留 _id）—— 高危，仅维护期使用
+db.orders.dropIndexes()</code></pre>
+<h3>隐藏 / 唤醒</h3>
+<pre><code class="language-javascript">// 4.4+ 隐藏索引：暂不让查询计划用，但仍维护写入
+// 适合「我打算删某索引但不放心」的灰度演练
+db.orders.hideIndex(&quot;idx_legacy&quot;)
+db.orders.unhideIndex(&quot;idx_legacy&quot;)
+
+// 等同 collMod
+db.runCommand({
+  collMod: &quot;orders&quot;,
+  index: { name: &quot;idx_legacy&quot;, hidden: true }
+})</code></pre>
+<div class="callout info"><div class="ico">💡</div><div class="body">🧪 <strong>灰度删索引最佳路径</strong>：先 <code>hide</code> → 观察一周慢日志 → 无影响再 <code>dropIndex</code>，避免误删导致 P0。</div></div>
+<h3>重建</h3>
+<pre><code class="language-javascript">// 整体重建（线上慎用，会持锁；副本集滚动 reIndex 才安全）
+db.orders.reIndex()
+
+// 标准做法：drop + create，副本集逐节点滚动
+db.orders.dropIndex(&quot;idx_old&quot;)
+db.orders.createIndex({ uid:1, ts:-1 }, { name: &quot;idx_uid_ts&quot; })</code></pre>
+</section>
+<section class="section" id="104-复合索引黄金法则-esr">
+  <h2><span class="ix">10.4</span>复合索引黄金法则 · ESR</h2>
+<p>多字段复合索引<strong>顺序至关重要</strong>。MongoDB 官方推荐 <strong>ESR 顺序</strong>：</p>
+<pre><code>┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│      E      │ →  │      S      │ →  │      R      │
+│  Equality   │    │    Sort     │    │   Range     │
+│  等值匹配   │    │  排序字段   │    │  范围 / IN  │
+└─────────────┘    └─────────────┘    └─────────────┘</code></pre>
+<h3>用一条 SQL 演示</h3>
+<pre><code class="language-javascript">// 需求
+db.orders.find(
+  { uid: 12345, status: &quot;PAID&quot;, amount: { $gt: 100 } }
+).sort({ createTime: -1 })</code></pre>
+<p><strong>❌ 错误顺序 → SORT_IN_MEMORY</strong></p>
+<pre><code class="language-javascript">{ amount: 1, createTime: -1, uid: 1, status: 1 }</code></pre>
+<div class="callout info"><div class="ico">💡</div><div class="body">把 Range（amount）放最前，索引前缀直接被范围扫描破坏；后续 uid/status 的等值匹配也无法收敛。</div></div>
+<p><strong>✅ ESR 顺序 → IXSCAN + 索引排序</strong></p>
+<pre><code class="language-javascript">{ uid: 1, status: 1, createTime: -1, amount: 1 }</code></pre>
+<div class="callout info"><div class="ico">💡</div><div class="body">E（uid+status）先收敛 → S（createTime 倒序）天然有序无需 SORT 阶段 → R（amount &gt; 100）走范围。</div></div>
+<div class="callout info"><div class="ico">💡</div><div class="body">⚠ <strong>排序方向也要匹配</strong> 索引若是 <code>createTime: -1</code>，<code>sort({ createTime: 1 })</code> 也能反向扫描； 但 <strong>多字段</strong>排序方向不一致时（如 <code>{a:1,b:-1}</code>），索引顺序必须严格匹配查询。</div></div>
+</section>
+<section class="section" id="105-覆盖查询-covered-query">
+  <h2><span class="ix">10.5</span>覆盖查询 · Covered Query</h2>
+<p>当查询<strong>所需字段全部包含</strong>在索引内时，MongoDB 跳过 FETCH 阶段，<strong>只扫索引</strong>，性能极佳。</p>
+<pre><code class="language-javascript">// 索引
+db.users.createIndex({ city: 1, age: 1 })
+
+// ✅ 覆盖查询：projection 只取索引字段，并显式排除 _id
+db.users.find(
+  { city: &quot;SH&quot;, age: { $gt: 18 } },
+  { _id: 0, city: 1, age: 1 }
+).explain(&quot;executionStats&quot;)
+// stage: PROJECTION_COVERED -&gt; IXSCAN，没有 FETCH
+
+// ❌ 多取一个字段就破坏覆盖
+db.users.find(
+  { city: &quot;SH&quot; },
+  { _id: 0, city: 1, name: 1 }   // name 不在索引里，必须 FETCH
+)</code></pre>
+<div class="callout info"><div class="ico">💡</div><div class="body">🎯 <strong>判断技巧</strong> explain 里看到 <code>PROJECTION_COVERED</code> 而<strong>没有 FETCH</strong>，就是覆盖查询； <code>totalDocsExamined: 0</code> 也是同样信号。</div></div>
+</section>
+<section class="section" id="106-读懂-explain-输出">
+  <h2><span class="ix">10.6</span>读懂 explain 输出</h2>
+<p>慢查询排障的<strong>第一动作</strong>：拿到原始 SQL 加 <code>.explain(&quot;executionStats&quot;)</code> 跑一遍。</p>
+<h3>三种 verbosity 怎么选</h3>
+<table class="tbl"><thead><tr><th>模式</th><th>等价于</th><th>含义</th><th>使用场景</th></tr></thead><tbody>
+<tr><td><code>queryPlanner</code></td><td>默认</td><td>只给执行计划，不真跑</td><td>看「会走哪条索引」</td></tr>
+<tr><td><code>executionStats</code></td><td>常用</td><td>真跑一次并返回统计</td><td>看「扫了多少键、花了多少 ms」</td></tr>
+<tr><td><code>allPlansExecution</code></td><td>调优</td><td>所有候选计划都跑一遍</td><td>怀疑选错索引时，对比候选计划耗时</td></tr>
+</tbody></table>
+<h3>关键字段意义</h3>
+<p><strong>📊 查询规划区</strong></p>
+<ul>
+  <li><code>winningPlan.stage</code>：<code>COLLSCAN</code> = 全表，<code>IXSCAN</code> = 走索引，<code>FETCH</code> = 拿文档；理想链路 <code>FETCH → IXSCAN</code>。</li>
+  <li><code>indexName</code> / <code>keyPattern</code>：实际命中的索引。</li>
+  <li><code>rejectedPlans</code>：被淘汰的候选计划，调优可参考。</li>
+  <li><code>queryHash</code> / <code>planCacheKey</code>：相同查询形态的指纹，慢日志里能看到。</li>
+</ul>
+<p><strong>⏱ 执行统计区</strong></p>
+<ul>
+  <li><code>nReturned</code>：实际返回行数。</li>
+  <li><code>totalKeysExamined</code>：扫了多少索引键。</li>
+  <li><code>totalDocsExamined</code>：FETCH 了多少文档。</li>
+  <li><code>executionTimeMillis</code>：总耗时。</li>
+</ul>
+<div class="callout info"><div class="ico">💡</div><div class="body">🚨 <strong>三个红色信号 = 该建索引</strong> ① <code>stage: COLLSCAN</code>； ② <code>totalDocsExamined ≫ nReturned</code>（如返回 1 条扫了 30 万）； ③ 慢日志里出现 <code>SORT_KEY_GENERATOR</code> + <code>SORT</code>（排序无法走索引，内存排序）。 蓝鲸 <strong>慢查询分析工具</strong>（IegMongoTeam 自研）正是基于这套规则自动生成索引建议（参考 <a href="https://iwiki.woa.com/p/278981241" target="_blank" rel="noopener">iwiki/278981241</a>）。</div></div>
+<h3>实例：从慢日志反推 explain</h3>
+<pre><code class="language-text">// 真实日志（cmdb.cc_HostBase）：
+command: find { find: &quot;cc_HostBase&quot;, filter: { bk_agent_id: &quot;02000...&quot; } }
+planSummary: COLLSCAN
+keysExamined: 0  docsExamined: 345209  nreturned: 0
+queryHash: 6F57AF1A  planCacheKey: 28CE231C
+1457ms
+
+// 解读：表上明明有 bk_agent_id 唯一索引却走 COLLSCAN，
+//       keysExamined=0 说明索引根本没参与，
+//       立刻怀疑 partialFilterExpression / 数据类型不匹配（见 10.7 CASE-1）。</code></pre>
+</section>
+<section class="section" id="107-真实业务案例">
+  <h2><span class="ix">10.7</span>真实业务案例</h2>
+<div class="callout info"><div class="ico">💡</div><div class="body">以下案例全部来自 IegMongoTeam 知识库，是 SQL 命中失败的<strong>典型陷阱</strong>。</div></div>
+<h3>CASE-1 · cmdb：partialFilter 索引未命中</h3>
+<pre><code class="language-javascript">// 索引
+{ key:{bk_agent_id:1}, unique:true,
+  partialFilterExpression:{ bk_agent_id:{$type:&quot;string&quot;,$gt:&quot;&quot;} } }
+
+// 查询
+db.cc_HostBase.find({ bk_agent_id: &quot;0200...&quot; })
+// 结果：COLLSCAN，扫 345209 行，1457ms</code></pre>
+<ul>
+  <li><strong>原因</strong>：partialFilter 里有 <code>$type</code>，查询条件没显式声明 type 时驱动判定不匹配。</li>
+  <li><strong>修复</strong>：把查询写成 <code>{ bk_agent_id:{ $type:&quot;string&quot;, $eq:&quot;0200...&quot; } }</code> 即可走 IXSCAN。</li>
+  <li><strong>启示</strong>：<strong>partial 索引的代价是查询必须重复 filter 表达式</strong>。线上谨慎使用，或建一份普通索引兜底。</li>
+</ul>
+<h3>CASE-2 · 3.6：planCache 缓存了错的执行计划</h3>
+<p>3.6 集群上 explain 显示走对了索引，<strong>实际执行</strong>却没走，慢得离谱。</p>
+<pre><code class="language-javascript">// 1. 看 plan cache
+db.coll.getPlanCache().listQueryShapes()
+// 2. 清缓存
+db.coll.getPlanCache().clear()</code></pre>
+<ul>
+  <li><strong>原因</strong>：3.x planCache 在数据分布发生大变化时不会自动失效，老计划继续被命中。</li>
+  <li><strong>启示</strong>：批量 import / 业务数据骤变后主动 <code>planCache.clear()</code>；4.2+ 已显著改善但仍偶发。</li>
+</ul>
+<h3>CASE-3 · cmdb：$or 1500 等值条件 → 10s 超时</h3>
+<pre><code class="language-javascript">// 差
+find({ $or:[ {ip:&quot;a&quot;}, {ip:&quot;b&quot;}, ...1500 个 ] })
+
+// 优
+find({ ip:{ $in:[&quot;a&quot;,&quot;b&quot;,...1500] } })</code></pre>
+<ul>
+  <li><strong>原因</strong>：<code>$or</code> 多分支被规划成<strong>多次子查询</strong>且每个分支独立选择索引；<code>$in</code> 是一次范围扫描。</li>
+  <li><strong>提速</strong>：从 5~10s → 30ms。</li>
+  <li><strong>规则</strong>：<strong>同字段等值集合用 $in，不同字段才用 $or</strong>。</li>
+</ul>
+<h3>CASE-4：排序内存爆炸：超过 32MB 限制</h3>
+<pre><code class="language-text">// 报错
+Sort operation used more than the maximum 33554432 bytes
+of RAM. Add an index, or specify a smaller limit.</code></pre>
+<ul>
+  <li><strong>查询</strong>：<code>find({gid:{$in:[...]}}).sort({t_42_0:1})</code>，无 <code>t_42_0</code> 索引。</li>
+  <li><strong>修复 1（推荐）</strong>：<code>db.coll.createIndex({t_42_0:1})</code>，让排序走索引。</li>
+  <li><strong>修复 2（治标）</strong>：调大参数 <code>internalQueryExecMaxBlockingSortBytes</code>（仅过渡）。</li>
+  <li><strong>启示</strong>：<strong>带 sort 的查询，排序字段也属于 ESR 中的 S，必须落在索引上</strong>。</li>
+</ul>
+<h3>CASE-5：NumberLong vs Number——类型不一致让索引&quot;形同虚设&quot;</h3>
+<p>数据写入时是 <code>NumberLong(&quot;11028583789246293&quot;)</code>，业务用 <code>Number(11028583789246293)</code> 查询，<strong>查不到</strong>。索引虽然存在，但 BSON 类型不匹配 → 走索引但 keysExamined 后一条都不命中。</p>
+<ul>
+  <li><strong>排查</strong>：<code>db.coll.findOne({})</code> 看真实类型，或 <code>typeof doc.field</code>。</li>
+  <li><strong>修复</strong>：driver / shell 用 <code>NumberLong(&quot;...&quot;)</code> 显式构造；或用 <code>{$in:[ x, NumberLong(x) ]}</code> 兜底。</li>
+  <li><strong>启示</strong>：MongoDB 索引<strong>区分 BSON 类型</strong>，跟 MySQL 的隐式转换完全不同。</li>
+</ul>
+</section>
+<section class="section" id="108-反模式-vs-最佳实践">
+  <h2><span class="ix">10.8</span>反模式 vs 最佳实践</h2>
+<h3>❌ 反模式（Anti-pattern）</h3>
+<ul>
+  <li>每个字段都建一条索引（&quot;上帝索引&quot;），写入压垮 WT cache。</li>
+  <li>把 <strong>Range / 数组字段</strong>放复合索引最前。</li>
+  <li>对<strong>低基数</strong>字段（如 status 只有 2 个值）建索引。</li>
+  <li>同一前缀建多条复合：<code>{a:1}</code>、<code>{a:1,b:1}</code>、<code>{a:1,b:1,c:1}</code> —— 后两者已涵盖第一者。</li>
+  <li>用 <code>$ne</code> / <code>$nin</code> / <code>$not</code> / 取反正则做主条件 —— 走不了索引。</li>
+  <li>partial 索引<strong>查询不带 filter 表达式</strong> → 命中不了（见 CASE-1）。</li>
+  <li>分片表的<strong>唯一约束不含分片键</strong> → mongos 直接拒绝。</li>
+  <li>无脑 <code>reIndex()</code> 线上 → 持锁阻塞业务。</li>
+</ul>
+<h3>✅ 最佳实践</h3>
+<ul>
+  <li>遵循 <strong>ESR 法则</strong>：等值 → 排序 → 范围。</li>
+  <li>能用<strong>覆盖查询</strong>的就建到正好覆盖，少一次 FETCH。</li>
+  <li>用 <code>$indexStats</code> 周期清理「<strong>从未被使用</strong>」的索引。</li>
+  <li>线上加索引：副本集 <strong>4.2+ 默认非阻塞</strong>，仍建议低峰执行。</li>
+  <li>删索引前先 <code>hideIndex</code> 灰度 1~2 周。</li>
+  <li>大集合的索引建议命名（<code>name:&quot;idx_uid_status_ts&quot;</code>），便于运维定位。</li>
+  <li>批量 import 后调用 <code>planCache.clear()</code> 防止脏计划。</li>
+  <li>TTL 索引的 <code>expireAfterSeconds</code> 通过 <code>collMod</code> 在线调整，无需重建。</li>
+</ul>
+<h3>索引能力矩阵 · 一眼速查</h3>
+<table class="tbl"><thead><tr><th>索引类型</th><th>等值</th><th>范围</th><th>排序</th><th>覆盖</th><th>前缀匹配</th><th>能否唯一</th></tr></thead><tbody>
+<tr><td>Single Field</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Compound（ESR）</td><td>✓</td><td>部分</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+<tr><td>Multikey</td><td>✓</td><td>部分</td><td>✗</td><td>✗</td><td>✓</td><td>需谨慎</td></tr>
+<tr><td>Hashed</td><td>✓</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td></tr>
+<tr><td>Text</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td></tr>
+<tr><td>2dsphere</td><td>✗</td><td>✓地理</td><td>✗</td><td>✗</td><td>✗</td><td>✗</td></tr>
+<tr><td>Wildcard</td><td>✓</td><td>✓</td><td>受限</td><td>✗</td><td>✗</td><td>✗</td></tr>
+<tr><td>TTL（基于 Single）</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✗</td></tr>
+</tbody></table>
+</section>
+<section class="section" id="109-分片集群里的索引特殊性">
+  <h2><span class="ix">10.9</span>分片集群里的索引特殊性</h2>
+<h3>🔑 分片键 = 强制索引</h3>
+<ul>
+  <li>shard key 必须有<strong>对应索引</strong>（Hashed 或 Range），否则 <code>shardCollection</code> 失败。</li>
+  <li>蓝鲸 GCS 工单创建分片表时会<strong>自动建好</strong>。</li>
+</ul>
+<h3>🚫 唯一约束 = 必含分片键</h3>
+<ul>
+  <li>例：分片键 <code>{tenant:1}</code>，想保证 <code>email</code> 唯一，必须建 <code>{tenant:1, email:1}</code> 唯一索引。</li>
+  <li>否则 mongos 无法跨分片做全局唯一性校验。</li>
+</ul>
+<h3>📡 查询是否「定向」</h3>
+<ul>
+  <li>带分片键的查询 → mongos <strong>直接路由到目标 shard</strong>。</li>
+  <li>不带 → <strong>scatter-gather</strong>，所有 shard 都扫一遍，索引再好也慢。</li>
+  <li>explain 关注 <code>shards.{shard0,shard1,...}</code> 是否只有一项。</li>
+</ul>
+<h3>🧱 chunk 分布 vs 索引选择</h3>
+<ul>
+  <li>balancer 移动 chunk 时不影响索引结构。</li>
+  <li>但<strong>新增分片</strong>后大量 chunk 迁移，要观察 WT cache 命中率，避免索引页冷启动雪崩。</li>
+</ul>
+</section>
+<section class="section" id="1010-索引体检-checklist">
+  <h2><span class="ix">10.10</span>索引体检 Checklist</h2>
+<table class="tbl"><thead><tr><th>步骤</th><th>操作</th><th>说明</th></tr></thead><tbody>
+<tr><td><strong>1. 找慢查询源</strong></td><td>蓝鲸<strong>慢查询分析工具</strong>（IegMongoTeam）按业务 → 集群 → 实例下钻</td><td>或直接 <code>db.system.profile</code> + <code>currentOp({secs_running:{$gt:1}})</code></td></tr>
+<tr><td><strong>2. 看是否走索引</strong></td><td><code>.explain(&quot;executionStats&quot;)</code></td><td>盯紧 <code>COLLSCAN</code>、<code>totalDocsExamined ≫ nReturned</code>、<code>SORT</code> 三个红色信号</td></tr>
+<tr><td><strong>3. 列已有索引、判重复</strong></td><td><code>db.coll.getIndexes()</code> + <code>$indexStats</code></td><td>找出从未使用 / 被前缀涵盖的冗余索引</td></tr>
+<tr><td><strong>4. 按 ESR 设计新索引</strong></td><td>等值字段 → 排序字段 → 范围字段</td><td>优先<strong>覆盖查询</strong></td></tr>
+<tr><td><strong>5. 低峰建索引 + 验证</strong></td><td><code>createIndex</code> 4.2+ 默认非阻塞</td><td>执行后再跑一次 explain 对比 <code>executionTimeMillis</code></td></tr>
+<tr><td><strong>6. 下线旧索引（灰度）</strong></td><td><code>hideIndex</code> 一周 → 慢日志无变化 → <code>dropIndex</code></td><td>避免误删</td></tr>
+<tr><td><strong>7. 清 planCache</strong></td><td>批量数据/索引变更后 <code>db.coll.getPlanCache().clear()</code></td><td>避免老计划被命中（见 CASE-2）</td></tr>
+</tbody></table>
+<div class="callout info"><div class="ico">💡</div><div class="body">🔗 <strong>关联章节</strong> ① <a href="05-mongosh.html">§5.6 索引入门</a>（基本命令） ② <a href="12-cases.html">第 12 章 · 业务案例</a>（更多索引相关 P0/P1 实战） ③ <a href="11-uri-readpref.html">§11.3 readPreference</a>（从读慢查询打到主：从节点必须有相同索引）</div></div>
+</section>
+  </main>
+</div>
+<script src="../assets/app.js?v=20260520c"></script>
+<script>HandbookInit({ activeId:'ch10' });</script>
+</body>
+</html>

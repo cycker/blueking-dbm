@@ -1,4 +1,4 @@
-# 第 12 章 · 附录：排障入口、FAQ 与术语表
+# 第 15 章 · 附录：排障入口、FAQ 与术语表
 
 > 把仓库内 MongoDB 相关源码索引、官方手册主题入口、常见 FAQ 与基础术语集中归档，便于二次跳转。
 
@@ -16,6 +16,8 @@
 | 工单 Builder（部署） | `backend/ticket/builders/mongodb/mongo_replicaset_apply.py` · `mongo_shard_apply.py` |
 | 升级链 | `flow/engine/bamboo/scene/mongodb/mongodb_upgrade_version.py` · `MONGODB_MAJOR_MINOR_UPGRADE_CHAIN` |
 | 元数据集群处理 | `backend/db_meta/api/cluster/mongocluster/handler.py` |
+| DBHA（mongos） | `dbm-services/common/dbha/ha-module/dbmodule/mongodb/` |
+| 故障自愈 | `backend/db_services/mongodb/autofix/` · `flow/.../mongodb_autofix.py` |
 
 > 📋 **排障原则**：日志与脚本细节随版本迭代；生产排障以 **工单详情 + Job 日志 + 集群监控（DBMon）** 三件套为准。
 
@@ -89,4 +91,4 @@
 
 ---
 
-⬅️ [上一章 · 第 11 章 MongoDB 索引设计与优化](11-indexes.md) ｜ [📖 返回目录](README.md)
+⬅️ [上一章 · 第 14 章 DBHA 与故障自愈](14-dbha-autofix.md) ｜ [📖 返回目录](README.md)

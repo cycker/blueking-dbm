@@ -1,4 +1,4 @@
-# 第 10 章 · MongoDB 连接 URI 与 readPreference 全解
+# 第 11 章 · MongoDB 连接 URI 与 readPreference 全解
 
 MongoDB 客户端与服务器之间的「**连接串**」远比 MySQL JDBC URL 复杂：它一行字符串里同时包含了 **种子节点列表、副本集名称、认证库、TLS、压缩、读偏好、超时** 等几十种参数。
 
@@ -331,4 +331,4 @@ mongodb://backup:pwd@host1,host2,host3/?
 > 📘 **相关章节**
 > ① [第 5 章 · mongosh 入门](05-mongosh.md) 有连接示范；
 > ② [第 8 章 · MongoDB 工具集](08-mongo-tools.md) 各工具如何使用 URI 与 readPref；
-> ③ [第 9 章 · 业务案例](09-cases.md) 有 mongos 负载不均、CursorNotFound 等真实问题。
+> ③ [第 12 章 · 业务案例](12-cases.md) 有 mongos 负载不均、CursorNotFound 等真实问题。

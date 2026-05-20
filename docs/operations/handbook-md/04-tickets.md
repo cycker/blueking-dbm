@@ -104,6 +104,7 @@
 | MongoDB 安装 DBMon | `MONGODB_INSTALL_DBMON` |
 | MongoDB 故障自愈 | `MONGODB_AUTOFIX` |
 
+> 🔗 **DBHA / 自愈**：mongos 接入层 DBHA 与 `MONGODB_AUTOFIX` 触发链路见 [第 14 章](14-dbha-autofix.md)。  
 > 🔗 **bk-dbmon 详解**（安装路径、启停、`meta`/`alarm`/`config`、与蓝鲸监控对接、Flow 入参）：见 [第 6 章](06-bk-dbmon.md)。
 
 ---

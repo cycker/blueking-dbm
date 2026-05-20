@@ -1,11 +1,11 @@
-# 第 11 章 · MongoDB 索引设计与优化
+# 第 10 章 · MongoDB 索引设计与优化
 
 > 索引是 MongoDB 性能优化的**第一抓手**。一条没有命中索引的全表扫描，足以让一个看似毫不起眼的 SQL 把整套副本集拖成 P0。
 > 本章从 **B-Tree 物理结构 → 索引家族 → ESR 黄金法则 → explain 解读 → 真实业务踩坑** 一站式串通，所有案例均来自 IegMongoTeam 知识库与蓝鲸生产现场。
 
 ---
 
-## 12.1 为什么必须建索引
+## 10.1 为什么必须建索引
 
 把表想成一摞 **无序卡片**：
 
@@ -36,19 +36,19 @@ db.cc_HostBase.find({ bk_agent_id: "02000..." }).explain("executionStats")
 
 ---
 
-## 12.2 索引家族全景
+## 10.2 索引家族全景
 
 MongoDB 把索引按**结构**与**修饰属性**两条线划分，下表是蓝鲸场景下最常见的 12 种。
 
 | 类型 | 起始版本 | 说明 |
 |---|---|---|
 | 🔑 **Single Field** | v1.0+ | 最基础的单字段索引，`{ field: 1 }` 升序、`-1` 降序。`_id` 默认就是单字段唯一索引。 |
-| 🧩 **Compound 复合索引** | v1.0+ | 多字段联合：`{ a:1, b:1, c:-1 }`。顺序敏感，遵循 **ESR 法则**（见 12.4）。 |
+| 🧩 **Compound 复合索引** | v1.0+ | 多字段联合：`{ a:1, b:1, c:-1 }`。顺序敏感，遵循 **ESR 法则**（见 10.4）。 |
 | 🪢 **Multikey 数组索引** | v1.0+ | 字段为数组时自动展开建索引；**每个数组元素一条索引项**，膨胀风险大。 |
 | 📝 **Text 全文索引** | v2.4+ | `{ content: "text" }`，支持分词与权重；同一集合**只能有一个**。 |
 | 🗺 **2dsphere 地理索引** | v2.4+ | GeoJSON 经纬度球面索引，`$near / $geoWithin` 查询必备。 |
 | 🎯 **Hashed Index** | v2.4+ | Hash(field) 建索引，**分片键打散**常用；不支持范围查询。 |
-| 🧤 **Partial 部分索引** | v3.2+ | `partialFilterExpression` 只对满足条件的文档建索引；**查询条件必须重复表达式**才能命中（见 12.7 案例）。 |
+| 🧤 **Partial 部分索引** | v3.2+ | `partialFilterExpression` 只对满足条件的文档建索引；**查询条件必须重复表达式**才能命中（见 10.7 案例）。 |
 | 🚿 **Sparse 稀疏索引** | v1.8+ | 字段不存在的文档不入索引；**大多数场景已被 Partial 取代**。 |
 | 🦋 **Wildcard Index** | v4.2+ | `{ "$**": 1 }` 对任意（动态）字段建索引；**动态 Schema 救命稻草**，但代价高。 |
 | ⏳ **TTL 过期索引** | v2.2+ | `expireAfterSeconds`，到点后台删除；**session/log/缓存**清理利器。 |
@@ -57,7 +57,7 @@ MongoDB 把索引按**结构**与**修饰属性**两条线划分，下表是蓝�
 
 ---
 
-## 12.3 建 / 看 / 删 索引 · 速查
+## 10.3 建 / 看 / 删 索引 · 速查
 
 ### 创建
 
@@ -152,7 +152,7 @@ db.orders.createIndex({ uid:1, ts:-1 }, { name: "idx_uid_ts" })
 
 ---
 
-## 12.4 复合索引黄金法则 · ESR
+## 10.4 复合索引黄金法则 · ESR
 
 多字段复合索引**顺序至关重要**。MongoDB 官方推荐 **ESR 顺序**：
 
@@ -193,7 +193,7 @@ db.orders.find(
 
 ---
 
-## 12.5 覆盖查询 · Covered Query
+## 10.5 覆盖查询 · Covered Query
 
 当查询**所需字段全部包含**在索引内时，MongoDB 跳过 FETCH 阶段，**只扫索引**，性能极佳。
 
@@ -221,7 +221,7 @@ db.users.find(
 
 ---
 
-## 12.6 读懂 explain 输出
+## 10.6 读懂 explain 输出
 
 慢查询排障的**第一动作**：拿到原始 SQL 加 `.explain("executionStats")` 跑一遍。
 
@@ -267,12 +267,12 @@ queryHash: 6F57AF1A  planCacheKey: 28CE231C
 
 // 解读：表上明明有 bk_agent_id 唯一索引却走 COLLSCAN，
 //       keysExamined=0 说明索引根本没参与，
-//       立刻怀疑 partialFilterExpression / 数据类型不匹配（见 12.7 CASE-1）。
+//       立刻怀疑 partialFilterExpression / 数据类型不匹配（见 10.7 CASE-1）。
 ```
 
 ---
 
-## 12.7 真实业务案例
+## 10.7 真实业务案例
 
 > 以下案例全部来自 IegMongoTeam 知识库，是 SQL 命中失败的**典型陷阱**。
 
@@ -343,7 +343,7 @@ of RAM. Add an index, or specify a smaller limit.
 
 ---
 
-## 12.8 反模式 vs 最佳实践
+## 10.8 反模式 vs 最佳实践
 
 ### ❌ 反模式（Anti-pattern）
 
@@ -382,7 +382,7 @@ of RAM. Add an index, or specify a smaller limit.
 
 ---
 
-## 12.9 分片集群里的索引特殊性
+## 10.9 分片集群里的索引特殊性
 
 ### 🔑 分片键 = 强制索引
 
@@ -407,7 +407,7 @@ of RAM. Add an index, or specify a smaller limit.
 
 ---
 
-## 12.10 索引体检 Checklist
+## 10.10 索引体检 Checklist
 
 | 步骤 | 操作 | 说明 |
 |---|---|---|
@@ -421,10 +421,10 @@ of RAM. Add an index, or specify a smaller limit.
 
 > 🔗 **关联章节**
 > ① [§5.6 索引入门](05-mongosh.md)（基本命令）
-> ② [第 9 章 · 业务案例](09-cases.md)（更多索引相关 P0/P1 实战）
-> ③ [§10.3 readPreference](10-uri-readpref.md)（从读慢查询打到主：从节点必须有相同索引）
+> ② [第 12 章 · 业务案例](12-cases.md)（更多索引相关 P0/P1 实战）
+> ③ [§11.3 readPreference](11-uri-readpref.md)（从读慢查询打到主：从节点必须有相同索引）
 
 
 ---
 
-⬅️ [上一章 · 第 10 章 URI 与 readPreference](10-uri-readpref.md) ｜ [📖 返回目录](README.md) ｜ [下一章 · 第 12 章 附录 ➡️](12-appendix.md)
+⬅️ [上一章 · 第 9 章 MongoDB 日志](09-mongodb-logs.md) ｜ [📖 返回目录](README.md) ｜ [下一章 · 第 11 章 URI 与 Read Preference ➡️](11-uri-readpref.md)

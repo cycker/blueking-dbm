@@ -37,7 +37,7 @@ mongo   "mongodb://user:password@host1:27017/admin?replicaSet=rs0"
 
 - **SRV 记录**：`mongodb+srv://...` 常用于云或托管服务解析种子列表。
 - **与 MySQL 对照**：`mysql -h host -P 3306 -u user -p` → mongosh 通常用 URI 或 `--host` / `--port` / `--username` 等参数（见 `mongosh --help`）。
-- **连接字符串细节**：见 [第 10 章 · 连接 URI & readPreference](./10-uri-readpref.md)。
+- **连接字符串细节**：见 [第 11 章 · 连接 URI & readPreference](./11-uri-readpref.md)。
 
 ---
 
@@ -59,8 +59,8 @@ mongo   "mongodb://user:password@host1:27017/admin?replicaSet=rs0"
 ```javascript
 show dbs                    // 列出可见数据库（需权限）
 use myapp                   // 切换当前数据库（不存在则延后创建）
-show collections            // 当前库下的集合
-db.getName()                // 当前库名
+show collections            // 当前库下的集合，也可写作 show tables
+db.getName()                // 当前库名，也可直接输入 db
 ```
 
 对集合的操作统一写为：`db.<集合名>.<方法>(...)`，例如 `db.users.find()`。
@@ -73,9 +73,11 @@ db.getName()                // 当前库名
 
 ### 插入
 
+新脚本建议使用 `insertOne` / `insertMany`，不要再使用旧的 `insert` 写法。
+
 ```javascript
-db.users.insertOne({ name: "Alice", age: 30 })
-db.users.insertMany([{ name: "Bob" }, { name: "Carol", tags: ["vip"] }])
+db.users.insertOne({ name: "Alice", age: 30 })                         // 插入一条
+db.users.insertMany([{ name: "Bob" }, { name: "Carol", tags: ["vip"] }]) // 插入多条
 ```
 
 ### 查询
@@ -89,19 +91,40 @@ db.users.find().limit(10).sort({ age: -1 }) // 排序与限制条数
 
 ### 更新
 
+MongoDB 更新时要先确认目标：是**只更新某个字段**，还是**替换整个文档**。
+
+- 新脚本建议使用 `updateOne` / `updateMany`，不要再使用旧的 `update` 写法。
+- 只改字段：使用 `updateOne` / `updateMany` 搭配 `$set`、`$unset`、`$inc` 等更新操作符。
+- 替换整文档：使用 `replaceOne`，新文档会替换原文档中除 `_id` 以外的内容，未写入的字段会丢失。
+- `updateOne` / `updateMany` 是 MongoDB 3.2 新增的语义化方法；老脚本里常见的 `update(filter, update, options)` 默认只更新一条，传 `{ multi: true }` 才会更新多条。
+
 ```javascript
 db.users.updateOne(
   { name: "Alice" },
-  { $set: { age: 31 }, $currentDate: { lastModified: true } }
+  { $set: { age: 31 }, $currentDate: { lastModified: true } }  // 只更新字段
 )
 db.users.replaceOne({ name: "Bob" }, { name: "Bob", age: 0 })  // 整文档替换
+
+// 历史写法，仅用于理解老脚本，不建议新写
+db.users.update({ name: "Alice" }, { $set: { age: 31 } })                  // 默认只更新一条
+db.users.update({ age: { $lt: 18 } }, { $set: { status: "minor" } }, { multi: true })  // 更新多条
 ```
 
 ### 删除
 
+`deleteOne` / `deleteMany` 也是 MongoDB 3.2 新增的语义化方法；新脚本建议使用它们，不要再使用旧的 `remove` 写法：
+
+- `deleteOne(filter)`：删除匹配条件的第一条文档。
+- `deleteMany(filter)`：删除所有匹配条件的文档。
+- `remove(filter)`：旧写法，常见于历史脚本；默认效果接近 `deleteMany(filter)`，如果传 `{ justOne: true }` 或第二个参数 `true`，则接近 `deleteOne(filter)`。
+
 ```javascript
-db.users.deleteOne({ name: "Carol" })
-db.users.deleteMany({ age: { $lt: 18 } })
+db.users.deleteOne({ name: "Carol" })       // 删除一条
+db.users.deleteMany({ age: { $lt: 18 } })   // 删除多条
+
+// 历史写法，仅用于理解老脚本，不建议新写
+db.users.remove({ name: "Carol" })          // 默认删除匹配条件的多条
+db.users.remove({ name: "Carol" }, true)    // 只删除一条
 ```
 
 ### SQL 对照（关键词）
@@ -111,7 +134,7 @@ db.users.deleteMany({ age: { $lt: 18 } })
 | `SELECT * FROM users WHERE id = 1` | `db.users.find({ _id: 1 })` |
 | `SELECT name FROM users LIMIT 10` | `db.users.find({}, { name: 1, _id: 0 }).limit(10)` |
 | `INSERT INTO users ...` | `insertOne` / `insertMany` |
-| `UPDATE users SET age=31 WHERE name='Alice'` | `updateOne` + `$set` |
+| `UPDATE users SET age=31 WHERE name='Alice'` | `updateOne` + `$set`，只更新字段 |
 | `DELETE FROM users WHERE ...` | `deleteOne` / `deleteMany` |
 
 > 🔑 **关于 `_id`**
@@ -151,11 +174,69 @@ db.users.dropIndex("name_1")                        // 按索引名删除（名�
 
 ### 🔗 副本集状态
 
+先用 `db.isMaster()` 快速判断当前连接到的节点角色、主库是谁、复制集成员有哪些。
+
+```javascript
+db.isMaster()
+```
+
+典型输出示例：
+
+```javascript
+{
+  ismaster: true,
+  secondary: false,
+  setName: "rs0",
+  hosts: [
+    "10.0.0.1:27017",
+    "10.0.0.2:27017",
+    "10.0.0.3:27017"
+  ],
+  primary: "10.0.0.1:27017",
+  me: "10.0.0.1:27017",
+  ok: 1
+}
+```
+
+重点看：`ismaster` 是否为 `true`、`secondary` 是否为 `true`、`primary` 指向哪台、`me` 是当前连接节点。MongoDB 新版本也可使用 `db.hello()`，但老集群和历史脚本中常见 `db.isMaster()`。
+
+`rs.status()` 用于查看副本集成员健康、角色和复制状态。
+
 ```javascript
 rs.status()
 ```
 
-查看成员角色与健康（需在副本集成员上执行）。
+典型输出示例：
+
+```javascript
+{
+  set: "rs0",
+  date: ISODate("2026-05-20T07:50:00Z"),
+  myState: 1,
+  members: [
+    {
+      name: "10.0.0.1:27017",
+      stateStr: "PRIMARY",
+      health: 1,
+      optimeDate: ISODate("2026-05-20T07:49:58Z")
+    },
+    {
+      name: "10.0.0.2:27017",
+      stateStr: "SECONDARY",
+      health: 1,
+      optimeDate: ISODate("2026-05-20T07:49:57Z")
+    },
+    {
+      name: "10.0.0.3:27017",
+      stateStr: "ARBITER",
+      health: 1
+    }
+  ],
+  ok: 1
+}
+```
+
+重点看：`myState: 1` 表示当前节点是 PRIMARY，`stateStr` 表示成员角色，`health: 1` 表示成员健康。排查复制延迟时可对比各成员的 `optimeDate`。
 
 ### 🧱 分片集群状态
 
@@ -163,7 +244,47 @@ rs.status()
 sh.status()
 ```
 
-查看分片与块分布摘要。
+典型输出示例：
+
+```text
+shardingVersion
+{ _id: 1, clusterId: ObjectId("...") }
+
+shards
+[
+  { _id: "shard01", host: "shard01/10.0.1.1:27017,10.0.1.2:27017" },
+  { _id: "shard02", host: "shard02/10.0.2.1:27017,10.0.2.2:27017" }
+]
+
+active mongoses
+[
+  "5.0.24"
+]
+
+databases
+[
+  {
+    database: {
+      _id: "myapp",
+      primary: "shard01",
+      partitioned: true
+    },
+    collections: {
+      "myapp.orders": {
+        shardKey: { user_id: "hashed" },
+        unique: false,
+        balancing: false,
+        chunks: [
+          { shard: "shard01", nChunks: 8 },
+          { shard: "shard02", nChunks: 8 }
+        ]
+      }
+    }
+  }
+]
+```
+
+重点看：`shards` 是否符合预期、库是否 `partitioned`、集合的 `shardKey`、`balancing` 状态，以及 `chunks` 在各 shard 上是否明显倾斜。
 
 具体拓扑与在蓝鲸 DBM 中的入口见 [第 2 章](./02-cluster-topology.md)。
 

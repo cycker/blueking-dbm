@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>第 14 章 · DBHA 与故障自愈 | MongoDB 手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css?v=20260520c" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar"></aside>
+  <main class="main">
+    <nav class="crumb"><a href="../index.html">🏠 首页</a><span class="sep">/</span><span>第 14 章</span><span class="sep">/</span><span style="color:#cbd5e1">第 14 章 · DBHA 与故障自愈</span></nav>
+    <h1 class="page-title">第 14 章 · DBHA 与故障自愈</h1>
+    <p class="page-lead">蓝鲸 DBM 中 MongoDB 的<strong>接入层高可用（DBHA）</strong>与<strong>整机级故障自愈</strong>是两条不同链路：前者在 <strong>mongos 不可用时从 DNS/CLB 摘除故障节点</strong>；后者在 DBHA 或人工确认后，由平台<strong>自动创建 <code>MONGODB_AUTOFIX</code> 工单</strong>申请新机并走替换 Flow。本章说明适用范围、流程与排障入口。</p>
+<section class="section" id="141-概念区分必读">
+  <h2><span class="ix">14.1</span>概念区分（必读）</h2>
+<table class="tbl"><thead><tr><th>能力</th><th>作用对象</th><th>触发方</th><th>典型结果</th></tr></thead><tbody>
+<tr><td><strong>MongoDB 副本集选举</strong></td><td>分片内 shard / 副本集 <strong>mongod</strong></td><td>MongoDB 内核</td><td>Primary 在 m1/m2 间切换；<strong>不由 DBHA 服务驱动</strong></td></tr>
+<tr><td><strong>DBHA（mongos）</strong></td><td><strong>分片集群接入层 mongos</strong></td><td><code>dbha</code> 探测失败 → 切换队列</td><td>从 <strong>DNS / CLB</strong> 摘掉故障 mongos IP</td></tr>
+<tr><td><strong>故障自愈（Autofix）</strong></td><td>故障 <strong>整机</strong>（mongos / mongod 所在机器）</td><td>周期任务读 HADB 切换队列 → 建单</td><td><code>MONGODB_AUTOFIX</code> → 资源池新机 + 替换 Flow</td></tr>
+</tbody></table>
+<div class="callout info"><div class="ico">💡</div><div class="body">📌 <strong>副本集业务高可用</strong>：依赖 <strong>≥3 成员 + m1/m2 <code>priority=1</code> + backup <code>priority=0</code></strong>，见 <a href="02-cluster-topology.html">第 2 章</a>。 <strong>分片集群业务入口高可用</strong>：依赖 <strong>≥2 个 mongos</strong> + 集群入口域名/CLB；DBHA 只负责「坏 mongos 不再被解析到」，<strong>不替代</strong> shard 内 mongod 选主。</div></div>
+</section>
+<section class="section" id="142-dbhamongos-探测与切换">
+  <h2><span class="ix">14.2</span>DBHA：mongos 探测与切换</h2>
+<h3>14.2.1 适用范围</h3>
+<table class="tbl"><thead><tr><th>项目</th><th>说明</th></tr></thead><tbody>
+<tr><td><strong>集群类型</strong></td><td>仅 <strong><code>MongoShardedCluster</code></strong></td></tr>
+<tr><td><strong>实例类型</strong></td><td>仅 <strong><code>mongos</code></strong>（<code>machine_type=mongos</code>）</td></tr>
+<tr><td><strong>不覆盖</strong></td><td>副本集 <code>MongoReplicaSet</code>、config server、shard 上的 <strong>mongod</strong>（存储层切换由 MongoDB 副本集机制处理）</td></tr>
+</tbody></table>
+<p>实现代码位于：</p>
+<pre><code class="language-text">dbm-services/common/dbha/ha-module/dbmodule/mongodb/
+├── mongos_detect.go    # Agent 探测
+├── mongos_switch.go  # GDM 执行切换
+└── mongos_callback.go</code></pre>
+<h3>14.2.2 探测逻辑（Agent）</h3>
+<p>对每个 mongos（同一主机只探测<strong>最小端口</strong>实例）：</p>
+<ol>
+  <li>使用 MongoDB Go Driver 连接 <code>mongodb://&lt;ip&gt;:&lt;port&gt;</code>，执行 <strong><code>buildInfo</code></strong>（超时见 <code>DBConf.MongoDB.Timeout</code>，默认约数秒级）。</li>
+  <li>若连接/命令失败 → 再 <strong>SSH</strong> 探测（<code>touch</code> 标记文件；区分认证失败与主机不可达）。</li>
+  <li>状态上报 GDM；失败实例进入切换流水线。</li>
+</ol>
+<h3>14.2.3 切换逻辑（GDM）</h3>
+<p>切换步骤（见 <code>mongos_switch.go</code> 注释）概要：</p>
+<table class="tbl"><thead><tr><th>步骤</th><th>动作</th></tr></thead><tbody>
+<tr><td><strong>CheckSwitch</strong></td><td>校验角色为 mongos；若绑定了 DNS，要求该域名下 <strong>至少还有 1 个其他 IP</strong>（<code>len(BindIps) &gt; 1</code>），避免把入口摘空</td></tr>
+<tr><td><strong>DoSwitch</strong></td><td><strong><code>KickOffDns</code></strong>：从域名解析中删除本机；<strong><code>KickOffClb</code></strong>：从 CLB 后端摘除本机</td></tr>
+<tr><td><strong>UpdateMetaInfo</strong></td><td>MongoDB mongos 切换 <strong>不回写</strong> CMDB 主从对调（与 MySQL 整机切换不同）</td></tr>
+</tbody></table>
+<p>切换成功/失败会向蓝鲸监控上报自定义事件（与 <a href="13-performance-views.html#139-mongodb-告警策略模板">§13.9</a> 策略对应）：</p>
+<table class="tbl"><thead><tr><th>事件名</th><th>告警级别</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>dbha_mongos_switch_succ</code></td><td>3（提醒）</td><td>已从入口摘除故障 mongos</td></tr>
+<tr><td><code>dbha_mongos_switch_err</code></td><td>1（严重）</td><td>摘除 DNS/CLB 失败</td></tr>
+</tbody></table>
+<h3>14.2.4 运维注意</h3>
+<ul>
+  <li><strong>mongos 至少 2 台</strong>：与拓扑规范一致；仅 1 台时 DBHA 可能因「DNS 只剩 1 IP」而 <strong>拒绝切换</strong>。</li>
+  <li><strong>CLB / DNS 工单</strong>：接入层需先按平台规范绑定；无 DNS/CLB 时对应 <code>KickOff*</code> 为 no-op，切换效果依赖客户端连接方式。</li>
+  <li><strong>切换 ≠ 换机</strong>：DBHA 只做<strong>流量摘除</strong>；若要新 mongos 实例，需走 <strong>自愈</strong> 或 <strong>扩容/替换</strong> 工单。</li>
+</ul>
+</section>
+<section class="section" id="143-故障自愈mongodbautofix">
+  <h2><span class="ix">14.3</span>故障自愈（MONGODB_AUTOFIX）</h2>
+<h3>14.3.1 与 Redis 自愈共用框架</h3>
+<p>MongoDB 自愈复用 Redis 侧的自愈表与周期任务（历史命名保留）：</p>
+<table class="tbl"><thead><tr><th>组件</th><th>路径 / 说明</th></tr></thead><tbody>
+<tr><td>周期任务</td><td><code>dbm-ui/backend/db_periodic_task/local_tasks/redis_autofix.py</code></td></tr>
+<tr><td>切换队列监听</td><td><code>watch_dbha_switch</code>（每分钟）</td></tr>
+<tr><td>建单</td><td><code>start_autofix_flow</code> → <code>generate_autofix_ticket</code></td></tr>
+<tr><td>Mongo 建单封装</td><td><code>dbm-ui/backend/db_services/mongodb/autofix/mongodb_autofix_ticket.py</code></td></tr>
+<tr><td>Flow 入口</td><td><code>flow/engine/bamboo/scene/mongodb/mongodb_autofix.py</code> · <code>MongoAutofixFlow</code></td></tr>
+<tr><td>状态表</td><td><code>RedisAutofixCore</code> / <code>RedisAutofixCtl</code></td></tr>
+</tbody></table>
+<p><strong>总开关</strong>：<code>RedisAutofixCtl</code> 中 <code>ctl_name=enable</code>，值为 <code>off</code> 时所有 DBHA 后续自愈不推进。</p>
+<h3>14.3.2 触发链路</h3>
+<pre><code class="language-mermaid">flowchart LR
+  A[dbha 切换队列 HADB] --&gt; B[watch_dbha_switch]
+  B --&gt; C[按集群聚合故障机]
+  C --&gt; D[start_autofix_flow]
+  D --&gt; E{机器类型?}
+  E --&gt;|mongos / mongod| F[mongo_create_ticket]
+  F --&gt; G[MONGODB_AUTOFIX 工单]
+  G --&gt; H[MongoAutofixFlow]</code></pre>
+<ol>
+  <li><strong><code>watcher_get_by_hosts</code></strong>：自 HADB <code>query_switch_queue_by_uid</code> 增量拉取切换记录，按 <strong>故障 IP</strong> 聚合。</li>
+  <li><strong><code>check_and_process</code></strong>：过滤忽略列表、多集群共用 IP 等异常后，写入 <code>RedisAutofixCore</code>。</li>
+  <li><strong><code>generate_autofix_ticket</code></strong>：识别 <code>MachineType.MONGOS</code> 或 mongod 角色 → 调用 <strong><code>mongo_create_ticket</code></strong>。</li>
+  <li>以业务 MongoDB DBA 为创建人自动提交 <strong><code>MONGODB_AUTOFIX</code></strong>，并企业微信通知。</li>
+</ol>
+<p>工单常量见 <a href="04-tickets.html#47-插件与观测4-项">第 4 章 §4.7</a>。</p>
+<h3>14.3.3 自愈 Flow 分支</h3>
+<table class="tbl"><thead><tr><th>集群类型</th><th>Flow</th><th>行为概要</th></tr></thead><tbody>
+<tr><td><strong>MongoReplicaSet</strong></td><td><code>MongoReplaceFlow.multi_host_replace_flow</code></td><td>对故障机上的 mongod <strong>整机替换</strong>（资源池申请 → 安装 → 元数据/域名）</td></tr>
+<tr><td><strong>MongoShardedCluster</strong></td><td><code>MongoClusterAutofixFlow.cluster_autofix_flow</code></td><td>分 <strong>mongos</strong>、<strong>mongo_config</strong>、<strong>shard mongod</strong> 子流程（<code>mongos_autofix</code> / <code>shard_autofix</code> 等）</td></tr>
+</tbody></table>
+<p>分片集群 <strong>mongos 自愈</strong>典型步骤（<code>cluster_monogs_autofix.py</code>）：新机安装 mongos + dbmon → 加密码/域名 → 挂 CLB → 下架旧实例等（与手工「扩容 mongos + 下架」类似，由 Flow 串行）。</p>
+<p><strong>mongos 资源池选址</strong>：若健康 mongos <strong>超过半数在同一园区</strong>，新机 <strong>排除</strong> 该园区，避免故障域集中（<code>mongos_get_resource_spec</code>）。</p>
+<h3>14.3.4 自愈状态（<code>AutofixStatus</code>）</h3>
+<table class="tbl"><thead><tr><th>状态</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>initautofix</code> / <code>start</code> / <code>initticket</code></td><td>排队、准备建单</td></tr>
+<tr><td><code>watchflow</code> / <code>running</code></td><td>工单 Flow 执行中</td></tr>
+<tr><td><code>reuse_host</code></td><td>尝试复用机器（Redis 路径为主）</td></tr>
+<tr><td><code>success</code> / <code>fail</code></td><td>终态</td></tr>
+</tbody></table>
+<p>可在 DBM 工单列表按类型 <strong><code>MONGODB_AUTOFIX</code></strong> 跟踪；失败时查看 <code>RedisAutofixCore.status_version</code> 与工单 Job 日志。</p>
+</section>
+<section class="section" id="144-与监控bk-dbmon-的关系">
+  <h2><span class="ix">14.4</span>与监控、bk-dbmon 的关系</h2>
+<table class="tbl"><thead><tr><th>来源</th><th>说明</th></tr></thead><tbody>
+<tr><td><strong>DBHA 事件告警</strong></td><td><a href="13-performance-views.html#139-mongodb-告警策略模板">第 13 章 §13.9</a></td></tr>
+<tr><td><strong><code>mongo_restart</code> 事件</strong></td><td>多为 <strong>计划内</strong> 工单/脚本重启（dbactuator <code>mongo_restart</code>），<strong>不是</strong> DBHA 自愈本身</td></tr>
+<tr><td><strong>维护窗口</strong></td><td>变更前 <code>bk-dbmon alarm shield</code>，避免重启、摘流误报（<a href="06-bk-dbmon.html">第 6 章</a>）</td></tr>
+<tr><td><strong>副本集 Primary 漂移</strong></td><td>看复制延迟、角色面板；<strong>无需</strong>等 DBHA 事件</td></tr>
+</tbody></table>
+</section>
+<section class="section" id="145-排障速查">
+  <h2><span class="ix">14.5</span>排障速查</h2>
+<table class="tbl"><thead><tr><th>现象</th><th>优先检查</th></tr></thead><tbody>
+<tr><td>收到 <code>dbha_mongos_switch_err</code></td><td>mongos 是否仍挂在 DNS/CLB；域名下是否只剩 1 IP；CLB API / 权限</td></tr>
+<tr><td>收到 <code>dbha_mongos_switch_succ</code> 但业务仍连旧 IP</td><td>客户端 DNS 缓存、长连接未重建；是否直连 IP 而非集群域名</td></tr>
+<tr><td>故障 mongos 未自愈</td><td><code>RedisAutofixCtl.enable</code> 是否为 <code>off</code>；IP 是否在忽略列表；HADB 队列是否有记录</td></tr>
+<tr><td>自愈单卡住</td><td>资源池规格/园区约束；<code>MONGODB_AUTOFIX</code> 工单 Flow 节点失败日志</td></tr>
+<tr><td>副本集 Primary 不可用</td><td><strong>rs.status()</strong>、选举、网络；走 <strong>实例重启/整机替换</strong> 工单，而非 DBHA</td></tr>
+<tr><td>分片 shard 主节点切换</td><td>shard 副本集选举；DBHA <strong>不会</strong> 切换 mongod</td></tr>
+</tbody></table>
+<h3>源码索引</h3>
+<table class="tbl"><thead><tr><th>说明</th><th>路径</th></tr></thead><tbody>
+<tr><td>DBHA mongos</td><td><code>dbm-services/common/dbha/ha-module/dbmodule/mongodb/</code></td></tr>
+<tr><td>自愈建单</td><td><code>dbm-ui/backend/db_services/mongodb/autofix/</code></td></tr>
+<tr><td>自愈 Flow</td><td><code>dbm-ui/backend/flow/engine/bamboo/scene/mongodb/mongodb_autofix.py</code></td></tr>
+<tr><td>周期任务</td><td><code>dbm-ui/backend/db_periodic_task/local_tasks/redis_autofix.py</code></td></tr>
+<tr><td>HADB 客户端</td><td><code>backend/components/hadb/client.py</code></td></tr>
+</tbody></table>
+</section>
+  </main>
+</div>
+<script src="../assets/app.js?v=20260520c"></script>
+<script>HandbookInit({ activeId:'ch14' });</script>
+</body>
+</html>

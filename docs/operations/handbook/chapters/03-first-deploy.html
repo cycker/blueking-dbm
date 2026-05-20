@@ -6,231 +6,220 @@
 <title>第 3 章 · 首次部署 MongoDB | MongoDB 手册</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="../assets/style.css?v=20260518b" />
+<link rel="stylesheet" href="../assets/style.css?v=20260520c" />
 </head>
 <body>
-
 <div class="layout">
   <aside class="sidebar"></aside>
   <main class="main">
-
-    <nav class="crumb">
-      <a href="../../index.html">🏠 首页</a><span class="sep">/</span>
-      <span>第 3 章</span><span class="sep">/</span>
-      <span style="color:#cbd5e1">首次部署 MongoDB</span>
-    </nav>
-
+    <nav class="crumb"><a href="../index.html">🏠 首页</a><span class="sep">/</span><span>第 3 章</span><span class="sep">/</span><span style="color:#cbd5e1">第 3 章 · 首次部署 MongoDB</span></nav>
     <h1 class="page-title">第 3 章 · 首次部署 MongoDB</h1>
-    <p class="page-lead">
-      面向<strong>从未部署过 MongoDB</strong> 的同学，介绍如何在蓝鲸 DBM 中通过<strong>标准化工单</strong>
-      驱动安装与元数据注册。本章<strong>不</strong>等同于在裸机上手工 <code>mongod</code> + 改配置。
-    </p>
+    <p class="page-lead">面向<strong>从未部署过 MongoDB</strong> 的同学，介绍如何在蓝鲸 DBM 中通过<strong>标准化工单</strong>驱动安装与元数据注册。</p>
+<div class="callout info"><div class="ico">💡</div><div class="body">本章<strong>不</strong>等同于在裸机上手工 <code>mongod</code> + 改配置。</div></div>
+<section class="section" id="31-范围说明-边界">
+  <h2><span class="ix">3.1</span>范围说明 <code>边界</code></h2>
+<ul>
+  <li>本章描述 <strong>在 DBM 内首次创建 MongoDB 集群</strong> 的路径，通过工单驱动安装。</li>
+  <li><strong>不</strong>等同于在裸机执行 <code>mongod</code> 与手工改配置。</li>
+  <li>若脱离 DBM，请参考 MongoDB 官方「Install」与生产 checklist。</li>
+</ul>
+</section>
+<section class="section" id="32-前置条件checklist-checklist">
+  <h2><span class="ix">3.2</span>前置条件（Checklist） <code>Checklist</code></h2>
+<table class="tbl"><thead><tr><th>类别</th><th>必备项</th></tr></thead><tbody>
+<tr><td>🏢 <strong>业务与云区域</strong></td><td>已选 <strong>蓝鲸业务</strong>；已选 <strong>云区域</strong>（<code>bk_cloud_id</code>）</td></tr>
+<tr><td>⚙️ <strong>平台配置</strong></td><td><strong>DB 模块</strong>（按企业规范填写）；<strong>城市 / 容灾亲和</strong> 等参数</td></tr>
+<tr><td>🖥️ <strong>主机来源</strong></td><td><code>IpSource</code>：资源池 / 指定机器；详见工单详情序列化</td></tr>
+<tr><td>📦 <strong>MongoDB 安装包</strong></td><td>「介质」中已启用对应 <code>db_version</code>；逻辑同 <code>list_available_versions</code> API（以 <code>Package</code> 表为准）</td></tr>
+<tr><td>🔐 <strong>权限</strong></td><td>部署类工单注册为 <code>ActionEnum.MONGODB_APPLY</code>（见 <code>mongo_replicaset_apply.py</code> / <code>mongo_shard_apply.py</code> 的 <code>@builders.BuilderFactory.register</code>）；实际菜单名以当前环境 <strong>IAM / 蓝鲸权限中心</strong> 为准。</td></tr>
+</tbody></table>
+</section>
+<section class="section" id="33-选型副本集-vs-分片集群-决策">
+  <h2><span class="ix">3.3</span>选型：副本集 vs 分片集群 <code>决策</code></h2>
+<table class="tbl"><thead><tr><th>维度</th><th>副本集</th><th>分片集群</th></tr></thead><tbody>
+<tr><td><strong>适用</strong></td><td>数据量 / 写入在「多副本」内可满足</td><td>需 <strong>多分片</strong> 线性扩展</td></tr>
+<tr><td><strong>组件</strong></td><td><code>mongod</code> 副本</td><td><code>mongos</code> + <code>config</code> + 多个 shard（每片多为副本集）</td></tr>
+<tr><td><strong>运维复杂度</strong></td><td>相对较低</td><td>更高（路由、均衡、分片键与扩容策略）</td></tr>
+</tbody></table>
+<div class="callout info"><div class="ico">💡</div><div class="body">✅ <strong>建议</strong>：不确定时优先 <strong>副本集</strong>；确需水平分片再选 <strong>分片集群</strong>。</div></div>
+</section>
+<section class="section" id="34-工单类型与代码常量-常量">
+  <h2><span class="ix">3.4</span>工单类型与代码常量 <code>常量</code></h2>
+<table class="tbl"><thead><tr><th>界面 / 单据名称</th><th>代码常量</th></tr></thead><tbody>
+<tr><td>MongoDB 副本集集群部署</td><td><code>MONGODB_REPLICASET_APPLY</code></td></tr>
+<tr><td>MongoDB 分片集群部署</td><td><code>MONGODB_SHARD_APPLY</code></td></tr>
+</tbody></table>
+<p>🔗 定义位置：<code>dbm-ui/backend/ticket/constants.py</code>（<code>MONGODB_*</code> 段，约 616~656 行）。</p>
+</section>
+<section class="section" id="35-提单关键参数serializer-对齐-字段">
+  <h2><span class="ix">3.5</span>提单关键参数（Serializer 对齐） <code>字段</code></h2>
+<div class="callout info"><div class="ico">💡</div><div class="body">以下字段来自工单 Builder 的 <code>DetailSerializer</code>。表单以当前 DBM 前端为准；升级 UI 后请以 <code>mongo_replicaset_apply.py</code> 与 <code>mongo_shard_apply.py</code> 为准核对。</div></div>
+<h3>3.5.1 副本集（<code>MongoReplicaSetApplyDetailSerializer</code>）</h3>
+<table class="tbl"><thead><tr><th>字段</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>bk_cloud_id</code></td><td>云区域 ID</td></tr>
+<tr><td><code>db_app_abbr</code></td><td>业务英文缩写</td></tr>
+<tr><td><code>cluster_type</code></td><td>集群类型常量</td></tr>
+<tr><td><code>db_version</code></td><td>MongoDB 大版本（介质中启用）</td></tr>
+<tr><td><code>start_port</code></td><td>起始端口</td></tr>
+<tr><td><code>replica_count</code> / <code>node_count</code> / <code>node_replica_count</code></td><td>副本与节点数</td></tr>
+<tr><td><code>replica_sets</code></td><td>包含 <code>set_id</code> / <code>name</code> / <code>domain</code></td></tr>
+<tr><td><code>spec_id</code> / <code>oplog_percent</code></td><td>规格与 oplog 百分比</td></tr>
+<tr><td><code>ip_source</code> / <code>nodes</code></td><td>资源池 / 手动指定机器</td></tr>
+<tr><td><code>disaster_tolerance_level</code> / <code>city_code</code></td><td>容灾级别 / 城市（可选）</td></tr>
+</tbody></table>
+<h3>3.5.2 分片集群（<code>MongoShardedClusterApplyDetailSerializer</code>）</h3>
+<table class="tbl"><thead><tr><th>字段</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>bk_cloud_id</code></td><td>云区域 ID</td></tr>
+<tr><td><code>db_app_abbr</code></td><td>业务英文缩写</td></tr>
+<tr><td><code>cluster_type</code></td><td>集群类型常量</td></tr>
+<tr><td><code>cluster_name</code> / <code>cluster_alias</code></td><td>集群名 / 别名</td></tr>
+<tr><td><code>db_version</code> / <code>start_port</code></td><td>版本 / 起始端口</td></tr>
+<tr><td><code>oplog_percent</code></td><td>oplog 百分比</td></tr>
+<tr><td><code>shard_machine_group</code></td><td>分片机器分组</td></tr>
+<tr><td><code>shard_num</code></td><td>分片数</td></tr>
+<tr><td><code>resource_spec</code></td><td>资源规格</td></tr>
+<tr><td><code>ip_source</code> / <code>nodes</code></td><td>资源池 / 手动指定机器</td></tr>
+<tr><td><code>disaster_tolerance_level</code> / <code>city_code</code></td><td>容灾级别 / 城市（可选）</td></tr>
+</tbody></table>
+</section>
+<section class="section" id="36-dbm-配置模板与参数-dbconfig">
+  <h2><span class="ix">3.6</span>DBM 配置模板与参数 <code>dbconfig</code></h2>
+<p>部署时 <strong>不会</strong> 让你在工单里手写完整 <code>mongod.conf</code>。平台从 <strong>dbconfig 配置模板</strong> 读取默认值与校验范围，再结合 <strong>主机规格</strong>、工单里的 <strong><code>oplog_percent</code></strong> 等，算出 <code>dbactuator</code> 的 <code>dbConfig</code>，生成实例上的 YAML/INI 并写入配置库。</p>
+<h3>3.6.1 配置从哪里来</h3>
+<pre><code>提单（spec_id、oplog_percent、db_version …）
+        ↓
+calculate_cluster / mongodb_dataclass（按内存、磁盘算 cache / oplog）
+        ↓
+get_mongodb_conf() → 读取 dbconfig 模板 Mongodb-{主版本}
+        ↓
+mongod_install 原子任务 → 本机 mongod.conf + 目录布局
+        ↓
+save_conf() → 配置持久化到 dbconfig（集群级，namespace=集群类型）</code></pre>
+<table class="tbl"><thead><tr><th>层级</th><th>说明</th><th>运维入口（以当前 DBM 为准）</th></tr></thead><tbody>
+<tr><td><strong>plat / app / cluster</strong></td><td>模板支持 <code>plat,app,cluster</code> 三级覆盖；<strong>版本化在 cluster 级</strong>（<code>level_versioned: cluster</code>）</td><td>平台 <strong>配置管理</strong> / 集群 <strong>配置项</strong></td></tr>
+<tr><td><strong>部署工单</strong></td><td>只暴露部分业务参数（如 <code>oplog_percent</code>、<code>spec_id</code>）；其余走模板默认 + 自动计算</td><td>部署单据表单</td></tr>
+<tr><td><strong>实例文件</strong></td><td>安装完成后本机 <code>mongod.conf</code>（3.0+ 为 YAML）</td><td>SSH 到节点查看（排障用）</td></tr>
+</tbody></table>
+<p>源码索引：</p>
+<table class="tbl"><thead><tr><th>说明</th><th>路径</th></tr></thead><tbody>
+<tr><td>副本集 / 分片 <strong>模板注册</strong></td><td><code>dbm-ui/backend/components/dbconfig/migrations/MongoReplicaSet/</code> · <code>MongoShardedCluster/</code></td></tr>
+<tr><td><strong>dbconf 参数定义</strong>（按大版本）</td><td><code>.../dbconf/Mongodb-3.json</code> · <code>Mongodb-4.json</code> · <code>Mongodb-6.json</code> · <code>Mongodb-7.json</code></td></tr>
+<tr><td><strong>OS 级模板</strong></td><td><code>.../mongodbcommon/config/osconf.json</code></td></tr>
+<tr><td>部署时拉模板</td><td><code>flow/utils/mongodb/mongodb_dataclass.py</code> → <code>get_mongodb_conf()</code></td></tr>
+<tr><td>安装 payload</td><td><code>dbm-services/.../dbactuator</code> → <code>mongod_install</code> 的 <code>dbConfig</code></td></tr>
+</tbody></table>
+<h3>3.6.2 模板文件与集群类型</h3>
+<table class="tbl"><thead><tr><th>集群类型 <code>namespace</code></th><th>配置类型 <code>conf_type</code></th><th>配置文件 <code>conf_file</code></th><th>适用 MongoDB 大版本</th></tr></thead><tbody>
+<tr><td><code>MongoReplicaSet</code></td><td><code>dbconf</code></td><td><code>Mongodb-3</code> / <code>4</code> / <code>6</code> / <code>7</code></td><td>主版本 3 / 4 / 6 / 7（与介质 <code>db_version</code> 对齐）</td></tr>
+<tr><td><code>MongoShardedCluster</code></td><td><code>dbconf</code></td><td>同上 + <strong>config_</strong> 前缀项</td><td>shard 用 <code>cacheSizeGB</code> / <code>oplogSizeMB</code>；config 用 <code>config_cacheSizeGB</code> / <code>config_oplogSizeMB</code></td></tr>
+<tr><td><code>MongoDBCommon</code></td><td><code>config</code></td><td><code>osconf</code></td><td>安装路径、OS 用户等，与 DB 大版本无关</td></tr>
+</tbody></table>
+<div class="callout info"><div class="ico">💡</div><div class="body">📌 选择版本时：平台取 <code>db_version</code> 的 <strong>主版本号</strong>（如 <code>4.4.25</code> → 模板 <code>Mongodb-4</code>）。未在 migrations 中登记的版本组合，部署前需在 dbconfig 侧确认是否已导入对应模板。</div></div>
+<h3>3.6.3 副本集 <code>dbconf</code> 参数（模板 + 含义）</h3>
+<p>下表来自 <code>MongoReplicaSet/dbconf/Mongodb-4.json</code>（6/7 等同结构；默认值各版本文件可能略有差异）。<strong>允许范围</strong>以环境内 dbconfig 为准。</p>
+<table class="tbl"><thead><tr><th>参数名</th><th>模板默认（示例）</th><th>允许范围（示例）</th><th>是否需重启</th><th>写入 <code>mongod.conf</code>（3.0+）</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>cacheSizeGB</code></td><td>10</td><td>10～80</td><td>是</td><td><code>storage.wiredTiger.engineConfig.cacheSizeGB</code></td><td>WiredTiger 缓存；<strong>部署时按内存重算</strong>，见 §3.6.5</td></tr>
+<tr><td><code>oplogSizeMB</code></td><td>10240</td><td>10240～81920</td><td>是</td><td><code>replication.oplogSizeMB</code></td><td>副本集 oplog 上限；<strong>部署时按磁盘与 <code>oplog_percent</code> 重算</strong></td></tr>
+<tr><td><code>slowOpThresholdMs</code></td><td>200</td><td>100～2000</td><td>是</td><td><code>operationProfiling.slowOpThresholdMs</code></td><td>超过阈值记慢查询；见 <a href="09-mongodb-logs.html">第 9 章 · 日志</a></td></tr>
+<tr><td><code>destination</code></td><td><code>file</code></td><td>仅 <code>file</code></td><td>是</td><td><code>systemLog.destination</code></td><td>日志输出到文件</td></tr>
+<tr><td><code>key_file</code></td><td>空</td><td>—</td><td>是</td><td><code>security.keyFile</code></td><td>副本集认证；<strong>安装时由平台生成路径与内容</strong>，非手填</td></tr>
+</tbody></table>
+<p><strong>部署工单直接相关的只有 <code>oplog_percent</code></strong>（整数，表示磁盘容量用于 oplog 的 <strong>百分比</strong>）。<code>spec_id</code> 决定主机内存/磁盘，间接决定算出来的 <code>cacheSizeGB</code> / <code>oplogSizeMB</code>。</p>
+<h3>3.6.4 分片集群额外 <code>dbconf</code> 参数</h3>
+<p>在副本集参数基础上，分片模板增加 <strong>config server</strong> 专用项（<code>MongoShardedCluster/dbconf/Mongodb-4.json</code>）：</p>
+<table class="tbl"><thead><tr><th>参数名</th><th>作用</th><th>对应角色</th></tr></thead><tbody>
+<tr><td><code>config_cacheSizeGB</code></td><td>configsvr WT 缓存</td><td><code>mongo_config</code></td></tr>
+<tr><td><code>config_oplogSizeMB</code></td><td>configsvr oplog</td><td><code>mongo_config</code></td></tr>
+<tr><td><code>cacheSizeGB</code> / <code>oplogSizeMB</code></td><td>各 <strong>shard</strong> 副本集成员</td><td><code>mongodb</code>（shard 上的 mongod）</td></tr>
+</tbody></table>
+<p><code>mongos</code> 安装使用精简 <code>dbConfig</code>（通常仅 <code>slowOpThresholdMs</code>、<code>destination</code> 等），无 oplog 段。</p>
+<h3>3.6.5 自动计算公式（部署流水线）</h3>
+<p>工单提交后，<code>calculate_cluster.replicase_calc</code> / 分片等价逻辑会 <strong>覆盖</strong> 模板里的 <code>cacheSizeGB</code>、<code>oplogSizeMB</code>：</p>
+<table class="tbl"><thead><tr><th>输出参数</th><th>计算公式（概念）</th><th>常量来源</th></tr></thead><tbody>
+<tr><td><code>cacheSizeGB</code></td><td><code>int(主机内存 MB × 0.65 / 单机部署实例数 / 1024)</code>，最小 1</td><td><code>MongoDBTotalCache.Cache_Percent = 0.65</code></td></tr>
+<tr><td><code>oplogSizeMB</code></td><td><code>int(数据盘 GB × 1024 × (oplog_percent ÷ 100) / 单机部署实例数)</code></td><td>工单字段 <code>oplog_percent</code>（如填 <code>10</code> 表示 10%）</td></tr>
+</tbody></table>
+<p>说明：</p>
+<ul>
+  <li><strong>单机部署实例数</strong>：<code>node_replica_count</code>（同一台机器上跑几个 mongod 端口）。</li>
+  <li><strong>数据盘</strong>：优先 <code>/data1</code>，否则 <code>/data</code>（见 <code>calculate_cluster.py</code>）。</li>
+  <li>模板中的 <code>value_default</code>（如 oplog 10240MB）多用于 <strong>配置中心校验/展示</strong>；<strong>新集群首次安装以计算值为准</strong>。</li>
+</ul>
+<h3>3.6.6 安装 payload 与落盘示例</h3>
+<p><code>mongod_install</code> 收到的 <code>dbConfig</code> 片段（与 <code>dbm-services/mongodb/db-tools/dbactuator/example/mongod_install.example.md</code> 一致）：</p>
+<pre><code class="language-json">{
+  &quot;dbConfig&quot;: {
+    &quot;slowOpThresholdMs&quot;: 200,
+    &quot;cacheSizeGB&quot;: 12,
+    &quot;oplogSizeMB&quot;: 51200,
+    &quot;destination&quot;: &quot;file&quot;
+  },
+  &quot;clusterRole&quot;: &quot;&quot;
+}</code></pre>
+<ul>
+  <li><strong>副本集</strong>：<code>clusterRole</code> 留空。</li>
+  <li><strong>分片 shard</strong>：<code>clusterRole: &quot;shardsvr&quot;</code>。</li>
+  <li><strong>config server</strong>：<code>clusterRole: &quot;configsvr&quot;</code>。</li>
+</ul>
+<p>生成的 <strong>3.0+ YAML</strong> 核心字段（逻辑映射）：</p>
+<pre><code class="language-yaml">storage:
+  dbPath: /data/mongodb/{port}      # 由安装路径规则生成，非 dbconf 表字段
+  engine: wiredTiger
+  wiredTiger:
+    engineConfig:
+      cacheSizeGB: 12                 # ← dbConfig.cacheSizeGB
+replication:
+  replSetName: {set_id}
+  oplogSizeMB: 51200                  # ← dbConfig.oplogSizeMB
+systemLog:
+  destination: file                   # ← dbConfig.destination
+  logAppend: true
+  path: {BackupDir}/mongolog/{port}/mongo.log
+operationProfiling:
+  slowOpThresholdMs: 200              # ← dbConfig.slowOpThresholdMs
+net:
+  port: {port}
+  bindIp: 127.0.0.1,{本机IP}</code></pre>
+<p>日志路径、数据目录、keyFile 等由 <strong>dbactuator 安装逻辑</strong>写死规则，不在 <code>dbconf</code> JSON 模板里逐项暴露。</p>
+<h3>3.6.7 OS 模板 <code>osconf</code>（节选）</h3>
+<table class="tbl"><thead><tr><th>参数名</th><th>默认（示例）</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>file_path</code></td><td><code>/data</code></td><td>安装包/脚本下发的工作目录根</td></tr>
+<tr><td><code>user</code> / <code>group</code></td><td><code>mysql</code></td><td>进程属主（以环境模板为准）</td></tr>
+<tr><td><code>install_dir</code> / <code>backup_dir</code></td><td>空（部署填充）</td><td>软件安装目录、备份根目录</td></tr>
+</tbody></table>
+<h3>3.6.8 部署后修改配置</h3>
+<ol>
+  <li><strong>推荐</strong>：DBM 集群 <strong>配置管理</strong> 中修改 dbconf 项 → 走平台「配置变更」类工单（若有）→ 滚动生效；<code>need_restart: 1</code> 的项需重启实例。</li>
+  <li><strong>紧急排障</strong>：登录节点改 <code>mongod.conf</code> 仅作临时手段，需记录并与平台配置对齐，避免下次安装/替换被覆盖。</li>
+  <li><strong>关联阅读</strong>：日志与慢查询阈值 → <a href="09-mongodb-logs.html">第 9 章</a>；拓扑与 backup 节点 → <a href="02-cluster-topology.html">第 2 章</a>。</li>
+</ol>
+</section>
+<section class="section" id="37-提交后跟进-排障">
+  <h2><span class="ix">3.7</span>提交后跟进 <code>排障</code></h2>
+<ol>
+  <li><strong>查看流水线节点</strong>：打开 <strong>工单中心</strong>，确认所有节点状态为成功。</li>
+  <li><strong>查看脚本日志</strong>：失败时进入单据详情，查看 <strong>标准运维 / Job 平台</strong> 返回的脚本日志（路径与 MySQL/Redis 一致）。</li>
+  <li><strong>常见失败方向</strong>：资源规格不足、亲和与可用区冲突、端口占用、安装包缺失或未启用 …… 具体以校验错误信息为准。</li>
+</ol>
+</section>
+<section class="section" id="38-交付与验活-verify">
+  <h2><span class="ix">3.8</span>交付与验活 <code>✅ Verify</code></h2>
+<p>取得访问入口后，使用 <strong>mongosh</strong> 连接执行以下命令验活：</p>
+<pre><code class="language-javascript">// 通用握手 / ping
+db.runCommand({ ping: 1 })
 
-    <!-- 3.1 -->
-    <section class="section" id="sec-3-1" style="--glow:rgba(34,211,238,.18)">
-      <h2><span class="ix">3.1</span>范围说明 <span class="pill cyan">边界</span></h2>
-      <ul>
-        <li>本章描述<strong>在 DBM 内首次创建 MongoDB 集群</strong> 的路径，通过工单驱动安装。</li>
-        <li><strong>不</strong>等同于在裸机执行 <code>mongod</code> 与手工改配置。</li>
-        <li>若脱离 DBM，请参考 MongoDB 官方「Install」与生产 checklist。</li>
-      </ul>
-    </section>
+// 查看连接信息（替代旧版 isMaster）
+db.runCommand({ hello: 1 })</code></pre>
+<pre><code class="language-javascript">// 副本集：查看成员状态
+rs.status()
 
-    <!-- 3.2 -->
-    <section class="section" id="sec-3-2" style="--glow:rgba(167,139,250,.18)">
-      <h2><span class="ix">3.2</span>前置条件（Checklist） <span class="pill violet">Checklist</span></h2>
-      <div class="grid col-2">
-        <div class="card">
-          <div class="head"><div class="ico-big">🏢</div><h4>业务与云区域</h4></div>
-          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">
-            <li>已选 <strong>蓝鲸业务</strong></li>
-            <li>已选 <strong>云区域</strong>（<code>bk_cloud_id</code>）</li>
-          </ul>
-        </div>
-        <div class="card">
-          <div class="head"><div class="ico-big">⚙️</div><h4>平台配置</h4></div>
-          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">
-            <li><strong>DB 模块</strong>（按企业规范填写）</li>
-            <li><strong>城市 / 容灾亲和</strong> 等参数</li>
-          </ul>
-        </div>
-        <div class="card">
-          <div class="head"><div class="ico-big">🖥️</div><h4>主机来源</h4></div>
-          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">
-            <li><code>IpSource</code>：资源池 / 指定机器</li>
-            <li>详见工单详情序列化</li>
-          </ul>
-        </div>
-        <div class="card">
-          <div class="head"><div class="ico-big">📦</div><h4>MongoDB 安装包</h4></div>
-          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px">
-            <li>「介质」中已启用对应 <code>db_version</code></li>
-            <li>逻辑同 <code>list_available_versions</code> API（以 <code>Package</code> 表为准）</li>
-          </ul>
-        </div>
-        <div class="card" style="grid-column:span 2">
-          <div class="head"><div class="ico-big">🔐</div><h4>权限</h4></div>
-          <div class="sub">
-            部署类工单注册为 <code>ActionEnum.MONGODB_APPLY</code>（见 <code>mongo_replicaset_apply.py</code> /
-            <code>mongo_shard_apply.py</code> 的 <code>@builders.BuilderFactory.register</code>）；
-            实际菜单名以当前环境 <strong>IAM / 蓝鲸权限中心</strong> 为准。
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 3.3 -->
-    <section class="section" id="sec-3-3" style="--glow:rgba(52,211,153,.18)">
-      <h2><span class="ix">3.3</span>选型：副本集 vs 分片集群 <span class="pill green">决策</span></h2>
-      <table class="tbl">
-        <thead><tr><th style="width:140px">维度</th><th>副本集</th><th>分片集群</th></tr></thead>
-        <tbody>
-          <tr><td><strong>适用</strong></td>
-            <td>数据量 / 写入在「多副本」内可满足</td>
-            <td>需 <strong>多分片</strong> 线性扩展</td></tr>
-          <tr><td><strong>组件</strong></td>
-            <td><code>mongod</code> 副本</td>
-            <td><code>mongos</code> + <code>config</code> + 多个 shard（每片多为副本集）</td></tr>
-          <tr><td><strong>运维复杂度</strong></td>
-            <td>相对较低</td>
-            <td>更高（路由、均衡、分片键与扩容策略）</td></tr>
-        </tbody>
-      </table>
-      <div class="callout tip">
-        <div class="ico">✅</div>
-        <div class="body">
-          <strong>建议</strong>
-          不确定时优先 <strong>副本集</strong>；确需水平分片再选 <strong>分片集群</strong>。
-        </div>
-      </div>
-    </section>
-
-    <!-- 3.4 -->
-    <section class="section" id="sec-3-4" style="--glow:rgba(245,158,11,.18)">
-      <h2><span class="ix">3.4</span>工单类型与代码常量 <span class="pill amber">常量</span></h2>
-      <table class="tbl">
-        <thead><tr><th>界面 / 单据名称</th><th>代码常量</th></tr></thead>
-        <tbody>
-          <tr><td>MongoDB 副本集集群部署</td><td><code>MONGODB_REPLICASET_APPLY</code></td></tr>
-          <tr><td>MongoDB 分片集群部署</td><td><code>MONGODB_SHARD_APPLY</code></td></tr>
-        </tbody>
-      </table>
-      <p class="text-muted" style="font-size:12.5px">
-        🔗 定义位置：<code>dbm-ui/backend/ticket/constants.py</code>（<code>MONGODB_*</code> 段，约 616~656 行）。
-      </p>
-    </section>
-
-    <!-- 3.5 -->
-    <section class="section" id="sec-3-5" style="--glow:rgba(244,114,182,.18)">
-      <h2><span class="ix">3.5</span>提单关键参数（Serializer 对齐）<span class="pill pink">字段</span></h2>
-      <p class="text-muted">
-        以下字段来自工单 Builder 的 <code>DetailSerializer</code>。表单以当前 DBM 前端为准；升级 UI 后请以
-        <code>mongo_replicaset_apply.py</code> 与 <code>mongo_shard_apply.py</code> 为准核对。
-      </p>
-
-      <div data-tabs>
-        <div class="tabs">
-          <div class="tab">副本集（MongoReplicaSetApplyDetailSerializer）</div>
-          <div class="tab">分片集群（MongoShardedClusterApplyDetailSerializer）</div>
-        </div>
-
-        <div class="tab-panel">
-          <table class="tbl">
-            <thead><tr><th>字段</th><th>说明</th></tr></thead>
-            <tbody>
-              <tr><td><code>bk_cloud_id</code></td><td>云区域 ID</td></tr>
-              <tr><td><code>db_app_abbr</code></td><td>业务英文缩写</td></tr>
-              <tr><td><code>cluster_type</code></td><td>集群类型常量</td></tr>
-              <tr><td><code>db_version</code></td><td>MongoDB 大版本（介质中启用）</td></tr>
-              <tr><td><code>start_port</code></td><td>起始端口</td></tr>
-              <tr><td><code>replica_count</code> / <code>node_count</code> / <code>node_replica_count</code></td><td>副本与节点数</td></tr>
-              <tr><td><code>replica_sets</code></td><td>包含 <code>set_id</code> / <code>name</code> / <code>domain</code></td></tr>
-              <tr><td><code>spec_id</code> / <code>oplog_percent</code></td><td>规格与 oplog 百分比</td></tr>
-              <tr><td><code>ip_source</code> / <code>nodes</code></td><td>资源池 / 手动指定机器</td></tr>
-              <tr><td><code>disaster_tolerance_level</code> / <code>city_code</code></td><td>容灾级别 / 城市（可选）</td></tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="tab-panel">
-          <table class="tbl">
-            <thead><tr><th>字段</th><th>说明</th></tr></thead>
-            <tbody>
-              <tr><td><code>bk_cloud_id</code></td><td>云区域 ID</td></tr>
-              <tr><td><code>db_app_abbr</code></td><td>业务英文缩写</td></tr>
-              <tr><td><code>cluster_type</code></td><td>集群类型常量</td></tr>
-              <tr><td><code>cluster_name</code> / <code>cluster_alias</code></td><td>集群名 / 别名</td></tr>
-              <tr><td><code>db_version</code> / <code>start_port</code></td><td>版本 / 起始端口</td></tr>
-              <tr><td><code>oplog_percent</code></td><td>oplog 百分比</td></tr>
-              <tr><td><code>shard_machine_group</code></td><td>分片机器分组</td></tr>
-              <tr><td><code>shard_num</code></td><td>分片数</td></tr>
-              <tr><td><code>resource_spec</code></td><td>资源规格</td></tr>
-              <tr><td><code>ip_source</code> / <code>nodes</code></td><td>资源池 / 手动指定机器</td></tr>
-              <tr><td><code>disaster_tolerance_level</code> / <code>city_code</code></td><td>容灾级别 / 城市（可选）</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- 3.6 -->
-    <section class="section" id="sec-3-6" style="--glow:rgba(34,211,238,.18)">
-      <h2><span class="ix">3.6</span>提交后跟进 <span class="pill cyan">排障</span></h2>
-      <div class="steps">
-        <div class="step-item">
-          <div class="n">1</div>
-          <div class="body">
-            <h5>查看流水线节点</h5>
-            <p>打开 <strong>工单中心</strong>，确认所有节点状态为成功。</p>
-          </div>
-        </div>
-        <div class="step-item">
-          <div class="n">2</div>
-          <div class="body">
-            <h5>查看脚本日志</h5>
-            <p>失败时进入单据详情，查看 <strong>标准运维 / Job 平台</strong> 返回的脚本日志（路径与 MySQL/Redis 一致）。</p>
-          </div>
-        </div>
-        <div class="step-item">
-          <div class="n">3</div>
-          <div class="body">
-            <h5>常见失败方向</h5>
-            <p>资源规格不足、亲和与可用区冲突、端口占用、安装包缺失或未启用 …… 具体以校验错误信息为准。</p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- 3.7 -->
-    <section class="section" id="sec-3-7" style="--glow:rgba(52,211,153,.18)">
-      <h2><span class="ix">3.7</span>交付与验活 <span class="pill green">✅ Verify</span></h2>
-      <p>取得访问入口后，使用 <strong>mongosh</strong> 连接执行以下命令验活：</p>
-
-      <pre><span class="code-tag">javascript</span><code><span class="tok-cmt">// 通用握手 / ping</span>
-db.runCommand({ <span class="tok-fn">ping</span>: <span class="tok-num">1</span> })
-
-<span class="tok-cmt">// 查看连接信息（替代旧版 isMaster）</span>
-db.runCommand({ <span class="tok-fn">hello</span>: <span class="tok-num">1</span> })</code></pre>
-
-      <pre><span class="code-tag">javascript</span><code><span class="tok-cmt">// 副本集：查看成员状态</span>
-rs.<span class="tok-fn">status</span>()
-
-<span class="tok-cmt">// 分片集群：查看分片与块分布摘要</span>
-sh.<span class="tok-fn">status</span>()</code></pre>
-
-      <div class="callout info">
-        <div class="ico">📖</div>
-        <div class="body">
-          <strong>命令详解</strong>
-          见 <a href="05-mongosh.html">第 5 章 · mongosh Shell 入门</a>。
-        </div>
-      </div>
-    </section>
-
+// 分片集群：查看分片与块分布摘要
+sh.status()</code></pre>
+<div class="callout info"><div class="ico">💡</div><div class="body">📖 <strong>命令详解</strong>：见 <a href="05-mongosh.html">第 5 章 · mongosh Shell 入门</a>。</div></div>
+</section>
   </main>
 </div>
-
-<script src="../assets/app.js?v=20260518b"></script>
+<script src="../assets/app.js?v=20260520c"></script>
 <script>HandbookInit({ activeId:'ch03' });</script>
 </body>
 </html>

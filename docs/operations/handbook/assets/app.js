@@ -9,29 +9,31 @@
 (function(){
   // 章节注册表 —— 单一数据源，所有页面共用
   const CHAPTERS = [
-    { id:'home',    href:'../../index.html',               num:'',   title:'手册首页' },
-    { id:'ch01',    href:'01-concepts.html',               num:'1',  title:'导读 & 概念对照' },
-    { id:'ch02',    href:'02-cluster-topology.html',       num:'2',  title:'DBM 集群形态' },
-    { id:'ch03',    href:'03-first-deploy.html',           num:'3',  title:'首次部署 MongoDB' },
-    { id:'ch04',    href:'04-tickets.html',                num:'4',  title:'控制台与工单全景' },
-    { id:'ch05',    href:'05-mongosh.html',                num:'5',  title:'mongosh Shell 入门' },
-    { id:'ch06',    href:'06-bk-dbmon.html',               num:'6',  title:'bk-dbmon 监控守护' },
-    { id:'ch07',    href:'07-versions.html',               num:'7',  title:'2.4→8.0 版本特性' },
-    { id:'ch09',    href:'09-mongo-tools.html',            num:'9',  title:'mongodump / 工具集' },
-    { id:'ch10',    href:'10-cases.html',                  num:'10', title:'业务案例集' },
-    { id:'ch11',    href:'11-uri-readpref.html',           num:'11', title:'连接 URI & readPreference' },
-    { id:'ch12',    href:'12-indexes.html',                num:'12', title:'索引设计与优化' },
-    { id:'ch08',    href:'08-appendix.html',               num:'A',  title:'附录 · 排障 / FAQ' },
+    { id:'home',    href:'../index.html',                 num:'',   title:'手册首页' },
+    { id:'ch01',    href:'01-concepts.html',              num:'1',  title:'核心概念与术语' },
+    { id:'ch02',    href:'02-cluster-topology.html',      num:'2',  title:'集群拓扑与节点规范' },
+    { id:'ch03',    href:'03-first-deploy.html',          num:'3',  title:'第一次部署' },
+    { id:'ch04',    href:'04-tickets.html',               num:'4',  title:'单据系统（Tickets）' },
+    { id:'ch05',    href:'05-mongosh.html',               num:'5',  title:'mongosh 使用指南' },
+    { id:'ch06',    href:'06-bk-dbmon.html',              num:'6',  title:'bk-dbmon 监控与备份' },
+    { id:'ch07',    href:'07-versions.html',              num:'7',  title:'MongoDB 版本支持' },
+    { id:'ch08',    href:'08-mongo-tools.html',           num:'8',  title:'MongoDB 工具集' },
+    { id:'ch09',    href:'09-mongodb-logs.html',          num:'9',  title:'MongoDB 日志' },
+    { id:'ch10',    href:'10-indexes.html',               num:'10', title:'MongoDB 索引设计与优化' },
+    { id:'ch11',    href:'11-uri-readpref.html',          num:'11', title:'URI 与 Read Preference' },
+    { id:'ch12',    href:'12-cases.html',                 num:'12', title:'真实业务案例' },
+    { id:'ch13',    href:'13-performance-views.html',     num:'13', title:'DBM 性能视图（Grafana）' },
+    { id:'ch14',    href:'14-dbha-autofix.html',          num:'14', title:'DBHA 与故障自愈' },
+    { id:'ch15',    href:'15-appendix.html',              num:'15', title:'附录 · 排障 / FAQ' },
   ];
   window.HANDBOOK_CHAPTERS = CHAPTERS;
 
   // 工具：根据当前页面是否为 index.html 调整 href
   function fixHref(href, fromIndex){
     if (fromIndex){
-      // 在站点根 index.html 上：home 指向自身，其他章节指向 handbook/chapters/xx
-      if (href.startsWith('../../')) return 'index.html';
-      if (href.startsWith('../')) return 'index.html';
-      return 'handbook/chapters/' + href;
+      // 在 handbook/index.html 上：home 指向自身，其他章节指向 chapters/xx
+      if (href.startsWith('../')) return '#';
+      return 'chapters/' + href;
     }
     // 在 handbook/chapters/xx.html 页面上：保持相对路径不变
     return href;
@@ -40,7 +42,7 @@
   // 注入顶部栏
   function renderTopbar(opts){
     const fromIndex = !!opts.fromIndex;
-    const homeHref = fromIndex ? '#' : '../../index.html';
+    const homeHref = fromIndex ? '#' : '../index.html';
     const html = `
       <div class="topbar-inner">
         <div class="flex items-center gap-12">
@@ -146,7 +148,7 @@
   function renderFooter(){
     const f = document.createElement('footer');
     f.className = 'footer';
-    f.innerHTML = `📄 来源：<code>docs/operations/*.md</code> · 🛠 蓝鲸 DBM · MongoDB 入门与运维手册 · 由 With 整理生成`;
+    f.innerHTML = `📄 来源：<code>docs/operations/handbook-md/*.md</code> · 🛠 蓝鲸 DBM · MongoDB 入门与运维手册 · 由 With 整理生成`;
     document.body.appendChild(f);
   }
 
@@ -239,6 +241,9 @@
     const main = document.querySelector('.main');
     if (!main) return null;
     const meta = CHAPTERS.find(c=>c.id===activeId);
+    const chapterIndex = CHAPTERS.findIndex(c=>c.id===activeId);
+    const nextChapter = chapterIndex >= 0 ? CHAPTERS[chapterIndex + 1] : null;
+    const nextHref = nextChapter ? fixHref(nextChapter.href, false) : '';
     const title = main.querySelector('.page-title')?.textContent?.trim() || (meta?.title || '');
     const lead  = main.querySelector('.page-lead')?.textContent?.trim() || '';
     const sections = Array.from(main.querySelectorAll('.section'));
@@ -286,6 +291,16 @@
       <div>
         <div class="slide-tag" style="text-align:center">END OF CHAPTER ${meta?.num || ''}</div>
         <div class="big">Thanks!</div>
+        ${nextChapter ? `
+          <a class="deck-next-link" href="${nextHref}">
+            <span>下一章</span>
+            <strong>第 ${nextChapter.num} 章 · ${nextChapter.title}</strong>
+            <i>→</i>
+          </a>` : `
+          <div class="deck-next-link disabled">
+            <span>已到最后一章</span>
+            <strong>返回手册首页或退出 PPT 模式</strong>
+          </div>`}
         <p class="slide-sub" style="text-align:center;margin-top:18px">按 <kbd style="background:#0c1730;border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:#a5f3fc;font-family:JetBrains Mono,monospace">ESC</kbd> 返回阅读模式　·　按 <kbd style="background:#0c1730;border:1px solid var(--border);padding:2px 8px;border-radius:6px;color:#a5f3fc;font-family:JetBrains Mono,monospace">Home</kbd> 回到首页</p>
       </div>`;
     stage.appendChild(outro);

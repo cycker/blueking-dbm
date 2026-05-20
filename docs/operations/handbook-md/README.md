@@ -14,17 +14,20 @@
 | 第 06 章 | bk-dbmon 监控与备份 | [06-bk-dbmon.md](./06-bk-dbmon.md) |
 | 第 07 章 | MongoDB 版本支持 | [07-versions.md](./07-versions.md) |
 | 第 08 章 | MongoDB 工具集 | [08-mongo-tools.md](./08-mongo-tools.md) |
-| 第 09 章 | 真实业务案例 | [09-cases.md](./09-cases.md) |
-| 第 10 章 | URI 与 Read Preference | [10-uri-readpref.md](./10-uri-readpref.md) |
-| 第 11 章 | MongoDB 索引设计与优化 | [11-indexes.md](./11-indexes.md) |
-| 第 12 章 | 附录：常用命令与配置 | [12-appendix.md](./12-appendix.md) |
+| 第 09 章 | MongoDB 日志（各版本差异） | [09-mongodb-logs.md](./09-mongodb-logs.md) |
+| 第 10 章 | MongoDB 索引设计与优化 | [10-indexes.md](./10-indexes.md) |
+| 第 11 章 | URI 与 Read Preference | [11-uri-readpref.md](./11-uri-readpref.md) |
+| 第 12 章 | 真实业务案例 | [12-cases.md](./12-cases.md) |
+| 第 13 章 | DBM 性能视图（Grafana） | [13-performance-views.md](./13-performance-views.md) |
+| 第 14 章 | DBHA 与故障自愈 | [14-dbha-autofix.md](./14-dbha-autofix.md) |
+| 第 15 章 | 附录：常用命令与配置 | [15-appendix.md](./15-appendix.md) |
 
 ## 🧭 阅读建议
 
 - **新手入门**：按 01 → 02 → 03 → 05 顺序通读，理解基础概念与首次部署流程。
-- **日常运维**：重点关注 04（单据）、06（监控备份）、12（附录速查）。
-- **性能优化**：聚焦 10（连接串）和 11（索引）。
-- **疑难排查**：先查 09（真实案例）→ 08（工具集）。
+- **日常运维**：重点关注 04（单据）、06（监控备份）、13（性能视图）、14（DBHA/自愈）、15（附录速查）。
+- **性能优化**：聚焦 11（连接串）和 10（索引）。
+- **疑难排查**：先查 12（真实案例）→ 13（性能视图）/ 09（日志）→ 08（工具集）。
 
 ## 🔄 与 HTML 版的对应关系
 

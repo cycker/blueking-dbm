@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>蓝鲸 DBM · MongoDB 运维手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css?v=20260520c" />
+</head>
+<body>
+<div class="layout"><aside class="sidebar"></aside><main class="main">
+<h1 class="page-title">蓝鲸 DBM · MongoDB 运维手册</h1>
+<p class="page-lead">本目录是 <code>docs/operations/handbook</code> HTML 版手册的 Markdown 镜像，便于在 GitLab / iWiki / VSCode 等环境中直接阅读、检索和二次编辑。</p>
+<section class="section" id="目录">
+  <h2><span class="ix">·</span>📚 目录</h2>
+<table class="tbl"><thead><tr><th>章节</th><th>标题</th><th>文件</th></tr></thead><tbody>
+<tr><td>第 01 章</td><td>核心概念与术语</td><td><a href="chapters/01-concepts.html">01-concepts.md</a></td></tr>
+<tr><td>第 02 章</td><td>集群拓扑与节点规范</td><td><a href="chapters/02-cluster-topology.html">02-cluster-topology.md</a></td></tr>
+<tr><td>第 03 章</td><td>第一次部署</td><td><a href="chapters/03-first-deploy.html">03-first-deploy.md</a></td></tr>
+<tr><td>第 04 章</td><td>单据系统（Tickets）</td><td><a href="chapters/04-tickets.html">04-tickets.md</a></td></tr>
+<tr><td>第 05 章</td><td>mongosh 使用指南</td><td><a href="chapters/05-mongosh.html">05-mongosh.md</a></td></tr>
+<tr><td>第 06 章</td><td>bk-dbmon 监控与备份</td><td><a href="chapters/06-bk-dbmon.html">06-bk-dbmon.md</a></td></tr>
+<tr><td>第 07 章</td><td>MongoDB 版本支持</td><td><a href="chapters/07-versions.html">07-versions.md</a></td></tr>
+<tr><td>第 08 章</td><td>MongoDB 工具集</td><td><a href="chapters/08-mongo-tools.html">08-mongo-tools.md</a></td></tr>
+<tr><td>第 09 章</td><td>MongoDB 日志（各版本差异）</td><td><a href="chapters/09-mongodb-logs.html">09-mongodb-logs.md</a></td></tr>
+<tr><td>第 10 章</td><td>MongoDB 索引设计与优化</td><td><a href="chapters/10-indexes.html">10-indexes.md</a></td></tr>
+<tr><td>第 11 章</td><td>URI 与 Read Preference</td><td><a href="chapters/11-uri-readpref.html">11-uri-readpref.md</a></td></tr>
+<tr><td>第 12 章</td><td>真实业务案例</td><td><a href="chapters/12-cases.html">12-cases.md</a></td></tr>
+<tr><td>第 13 章</td><td>DBM 性能视图（Grafana）</td><td><a href="chapters/13-performance-views.html">13-performance-views.md</a></td></tr>
+<tr><td>第 14 章</td><td>DBHA 与故障自愈</td><td><a href="chapters/14-dbha-autofix.html">14-dbha-autofix.md</a></td></tr>
+<tr><td>第 15 章</td><td>附录：常用命令与配置</td><td><a href="chapters/15-appendix.html">15-appendix.md</a></td></tr>
+</tbody></table>
+</section>
+<section class="section" id="阅读建议">
+  <h2><span class="ix">·</span>🧭 阅读建议</h2>
+<ul>
+  <li><strong>新手入门</strong>：按 01 → 02 → 03 → 05 顺序通读，理解基础概念与首次部署流程。</li>
+  <li><strong>日常运维</strong>：重点关注 04（单据）、06（监控备份）、13（性能视图）、14（DBHA/自愈）、15（附录速查）。</li>
+  <li><strong>性能优化</strong>：聚焦 11（连接串）和 10（索引）。</li>
+  <li><strong>疑难排查</strong>：先查 12（真实案例）→ 13（性能视图）/ 09（日志）→ 08（工具集）。</li>
+</ul>
+</section>
+<section class="section" id="与-html-版的对应关系">
+  <h2><span class="ix">·</span>🔄 与 HTML 版的对应关系</h2>
+<p>每个 <code>.md</code> 文件对应 <code>../handbook/chapters/</code> 下的同名 <code>.html</code>。 HTML 版包含交互式动效、流程图与可视化卡片，Markdown 版保留全部文字、代码、表格内容，便于离线阅读和版本对比。</p>
+<div class="callout info"><div class="ico">💡</div><div class="body">维护提示：当 HTML 章节有结构性更新时，请同步刷新对应 <code>.md</code> 文件，保持两套文档一致。</div></div>
+</section>
+</main></div>
+<script src="assets/app.js?v=20260520c"></script>
+<script>HandbookInit({ activeId:'home', fromIndex:true });</script>
+</body>
+</html>

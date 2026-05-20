@@ -1,119 +1,125 @@
-# 第 3 章 · 首次部署 MongoDB
+# 第 3 章 · MongoDB 部署后的目录与配置文件
 
-> 面向**从未部署过 MongoDB** 的同学，介绍如何在蓝鲸 DBM 中通过**标准化工单**驱动安装与元数据注册。
-> 本章**不**等同于在裸机上手工 `mongod` + 改配置。
-
----
-
-## 3.1 范围说明 `边界`
-
-- 本章描述 **在 DBM 内首次创建 MongoDB 集群** 的路径，通过工单驱动安装。
-- **不**等同于在裸机执行 `mongod` 与手工改配置。
-- 若脱离 DBM，请参考 MongoDB 官方「Install」与生产 checklist。
+> 本章只说明 DBM 部署 MongoDB 后，节点上的实际工作目录、数据目录、日志目录、配置文件，以及 dbconfig 参数如何落盘到实例配置。
 
 ---
 
-## 3.2 前置条件（Checklist） `Checklist`
+## 3.1 目录总览 `目录`
 
-| 类别 | 必备项 |
-| --- | --- |
-| 🏢 **业务与云区域** | 已选 **蓝鲸业务**；已选 **云区域**（`bk_cloud_id`） |
-| ⚙️ **平台配置** | **DB 模块**（按企业规范填写）；**城市 / 容灾亲和** 等参数 |
-| 🖥️ **主机来源** | `IpSource`：资源池 / 指定机器；详见工单详情序列化 |
-| 📦 **MongoDB 安装包** | 「介质」中已启用对应 `db_version`；逻辑同 `list_available_versions` API（以 `Package` 表为准） |
-| 🔐 **权限** | 部署类工单注册为 `ActionEnum.MONGODB_APPLY`（见 `mongo_replicaset_apply.py` / `mongo_shard_apply.py` 的 `@builders.BuilderFactory.register`）；实际菜单名以当前环境 **IAM / 蓝鲸权限中心** 为准。 |
+DBM 部署 MongoDB 时，目录一般按 **数据目录（DataDir）** 与 **备份/日志根目录（BackupDir）** 分开处理。现场排障时优先看节点上的 `mongo.conf`，以其中的 `storage.dbPath` 和 `systemLog.path` 为准。
 
----
-
-## 3.3 选型：副本集 vs 分片集群 `决策`
-
-| 维度 | 副本集 | 分片集群 |
+| 类型 | 常见目录 / 文件 | 说明 |
 | --- | --- | --- |
-| **适用** | 数据量 / 写入在「多副本」内可满足 | 需 **多分片** 线性扩展 |
-| **组件** | `mongod` 副本 | `mongos` + `config` + 多个 shard（每片多为副本集） |
-| **运维复杂度** | 相对较低 | 更高（路由、均衡、分片键与扩容策略） |
+| **工作目录根** | `/data` | 安装包、脚本下发和运维工具使用的默认根目录，实际值以环境内 `osconf.file_path` 为准 |
+| **mongod 数据目录** | `/data1/mongodata/{port}/db` 或 `/data/mongodata/{port}/db` | WiredTiger 数据文件所在目录 |
+| **mongod 配置文件** | `/data1/mongodata/{port}/mongo.conf` 或 `/data/mongodata/{port}/mongo.conf` | 3.0+ 为 YAML；同目录通常还有 `noauth.conf`、`key_of_mongo`、`pid.{port}` |
+| **mongod 日志** | `/data/mongolog/{port}/mongo.log` 或 `/data1/mongolog/{port}/mongo.log` | 跟随 `BackupDir/mongolog` |
+| **mongos 日志** | `/data1/mongolog/{port}/mongo.log` 或 `/data/mongolog/{port}/mongo.log` | 跟随 `DataDir/mongolog` |
+| **备份产物** | `/data/dbbak/mg/mongodump/` | bk-dbmon 日常 `mongodump` 产物目录，见 [第 6 章](06-bk-dbmon.md) |
 
-> ✅ **建议**：不确定时优先 **副本集**；确需水平分片再选 **分片集群**。
+目录选择习惯：
+
+1. **DataDir**：优先 `/data1`；若已有 `/data/mongodata` 或环境指定 `MONGO_DATA_DIR`，以实际安装结果为准。
+2. **BackupDir**：优先已有 `/data/dbbak` 的磁盘；否则按 `/data1/dbbak`、挂载点等规则选择。
+3. **mongod 与 mongos 日志不完全一致**：mongod 的 `mongo.log` 跟随 `BackupDir/mongolog`；mongos 的 `mongo.log` 跟随 `DataDir/mongolog`。
+4. **不要把 `/data/dbbak` 与 `mongolog` 混淆**：`/data/dbbak` 是备份/工具产物根目录，`mongolog/{port}/mongo.log` 才是 server log。
 
 ---
 
-## 3.4 工单类型与代码常量 `常量`
+## 3.2 本机配置文件 `配置文件`
 
-| 界面 / 单据名称 | 代码常量 |
+MongoDB 实例最终以节点上的 `mongo.conf` 为准。DBM 不要求在部署工单里手写完整配置文件，而是根据 dbconfig 模板、主机规格、端口、角色和少量提单参数生成实例配置。
+
+| 文件 / 目录 | 作用 |
 | --- | --- |
-| MongoDB 副本集集群部署 | `MONGODB_REPLICASET_APPLY` |
-| MongoDB 分片集群部署 | `MONGODB_SHARD_APPLY` |
+| `mongo.conf` | mongod / mongos 的主配置文件；3.0+ 通常为 YAML |
+| `noauth.conf` | 无认证场景或初始化阶段使用的辅助配置 |
+| `key_of_mongo` | 副本集 / 分片集群内部认证使用的 keyFile |
+| `pid.{port}` | 实例进程 PID 文件 |
 
-🔗 定义位置：`dbm-ui/backend/ticket/constants.py`（`MONGODB_*` 段，约 616~656 行）。
+常见 `mongo.conf` 核心字段如下：
 
----
-
-## 3.5 提单关键参数（Serializer 对齐） `字段`
-
-> 以下字段来自工单 Builder 的 `DetailSerializer`。表单以当前 DBM 前端为准；升级 UI 后请以 `mongo_replicaset_apply.py` 与 `mongo_shard_apply.py` 为准核对。
-
-### 3.5.1 副本集（`MongoReplicaSetApplyDetailSerializer`）
-
-| 字段 | 说明 |
-| --- | --- |
-| `bk_cloud_id` | 云区域 ID |
-| `db_app_abbr` | 业务英文缩写 |
-| `cluster_type` | 集群类型常量 |
-| `db_version` | MongoDB 大版本（介质中启用） |
-| `start_port` | 起始端口 |
-| `replica_count` / `node_count` / `node_replica_count` | 副本与节点数 |
-| `replica_sets` | 包含 `set_id` / `name` / `domain` |
-| `spec_id` / `oplog_percent` | 规格与 oplog 百分比 |
-| `ip_source` / `nodes` | 资源池 / 手动指定机器 |
-| `disaster_tolerance_level` / `city_code` | 容灾级别 / 城市（可选） |
-
-### 3.5.2 分片集群（`MongoShardedClusterApplyDetailSerializer`）
-
-| 字段 | 说明 |
-| --- | --- |
-| `bk_cloud_id` | 云区域 ID |
-| `db_app_abbr` | 业务英文缩写 |
-| `cluster_type` | 集群类型常量 |
-| `cluster_name` / `cluster_alias` | 集群名 / 别名 |
-| `db_version` / `start_port` | 版本 / 起始端口 |
-| `oplog_percent` | oplog 百分比 |
-| `shard_machine_group` | 分片机器分组 |
-| `shard_num` | 分片数 |
-| `resource_spec` | 资源规格 |
-| `ip_source` / `nodes` | 资源池 / 手动指定机器 |
-| `disaster_tolerance_level` / `city_code` | 容灾级别 / 城市（可选） |
-
----
-
-## 3.6 提交后跟进 `排障`
-
-1. **查看流水线节点**：打开 **工单中心**，确认所有节点状态为成功。
-2. **查看脚本日志**：失败时进入单据详情，查看 **标准运维 / Job 平台** 返回的脚本日志（路径与 MySQL/Redis 一致）。
-3. **常见失败方向**：资源规格不足、亲和与可用区冲突、端口占用、安装包缺失或未启用 …… 具体以校验错误信息为准。
-
----
-
-## 3.7 交付与验活 `✅ Verify`
-
-取得访问入口后，使用 **mongosh** 连接执行以下命令验活：
-
-```javascript
-// 通用握手 / ping
-db.runCommand({ ping: 1 })
-
-// 查看连接信息（替代旧版 isMaster）
-db.runCommand({ hello: 1 })
+```yaml
+storage:
+  dbPath: {DataDir}/mongodata/{port}/db
+  engine: wiredTiger
+  wiredTiger:
+    engineConfig:
+      cacheSizeGB: 12
+replication:
+  replSetName: {set_id}
+  oplogSizeMB: 51200
+systemLog:
+  destination: file
+  logAppend: true
+  path: {BackupDir}/mongolog/{port}/mongo.log
+operationProfiling:
+  slowOpThresholdMs: 200
+net:
+  port: {port}
+  bindIp: 127.0.0.1,{本机IP}
 ```
 
-```javascript
-// 副本集：查看成员状态
-rs.status()
+其中 `dbPath`、`systemLog.path`、`security.keyFile` 等路径由安装时的目录规则生成，不在 `dbconf` 模板里逐项暴露。
 
-// 分片集群：查看分片与块分布摘要
-sh.status()
-```
+---
 
-> 📖 **命令详解**：见 [第 5 章 · mongosh Shell 入门](./05-mongosh.md)。
+## 3.3 dbconfig 模板 `dbconfig`
+
+dbconfig 保存 MongoDB 的默认值、允许范围和重启属性。部署时平台读取模板，结合规格与提单参数计算出最终 `dbConfig`，再生成本机 `mongo.conf` 并把集群级配置写回配置库。
+
+| 层级 | 说明 | 运维入口（以当前 DBM 为准） |
+| --- | --- | --- |
+| **plat / app / cluster** | 模板支持 `plat,app,cluster` 三级覆盖；版本化在 cluster 级 | 平台 **配置管理** / 集群 **配置项** |
+| **部署工单** | 只暴露部分业务参数，如 `oplog_percent`、`spec_id`；其余走模板默认 + 自动计算 | 部署单据表单 |
+| **实例文件** | 安装完成后生成节点上的 `mongo.conf` | SSH 到节点查看 |
+
+| 集群类型 `namespace` | 配置类型 `conf_type` | 配置文件 `conf_file` | 适用 MongoDB 大版本 |
+| --- | --- | --- | --- |
+| `MongoReplicaSet` | `dbconf` | `Mongodb-3` / `4` / `6` / `7` | 主版本 3 / 4 / 6 / 7，与介质 `db_version` 对齐 |
+| `MongoShardedCluster` | `dbconf` | 同上 + `config_` 前缀项 | shard 用 `cacheSizeGB` / `oplogSizeMB`；config 用 `config_cacheSizeGB` / `config_oplogSizeMB` |
+| `MongoDBCommon` | `config` | `osconf` | 安装路径、OS 用户等，与 DB 大版本无关 |
+
+选择版本时，平台取 `db_version` 的主版本号，例如 `4.4.25` 对应 `Mongodb-4`。未导入对应模板时，需要先在 dbconfig 侧补齐。
+
+---
+
+## 3.4 dbconfig 参数与落盘映射 `映射`
+
+### 3.4.1 副本集参数
+
+| 参数名 | 模板默认（示例） | 允许范围（示例） | 是否需重启 | 写入 `mongo.conf` | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `cacheSizeGB` | 10 | 10～80 | 是 | `storage.wiredTiger.engineConfig.cacheSizeGB` | WiredTiger 缓存；部署时会按内存重算 |
+| `oplogSizeMB` | 10240 | 10240～81920 | 是 | `replication.oplogSizeMB` | 副本集 oplog 上限；部署时会按磁盘与 `oplog_percent` 重算 |
+| `slowOpThresholdMs` | 200 | 100～2000 | 是 | `operationProfiling.slowOpThresholdMs` | 超过阈值记慢查询；见 [第 9 章 · 日志](./09-mongodb-logs.md) |
+| `destination` | `file` | 仅 `file` | 是 | `systemLog.destination` | 日志输出到文件 |
+| `key_file` | 空 | - | 是 | `security.keyFile` | 副本集认证；安装时由平台生成路径与内容 |
+
+### 3.4.2 分片集群额外参数
+
+| 参数名 | 作用 | 对应角色 |
+| --- | --- | --- |
+| `config_cacheSizeGB` | configsvr WT 缓存 | `mongo_config` |
+| `config_oplogSizeMB` | configsvr oplog | `mongo_config` |
+| `cacheSizeGB` / `oplogSizeMB` | 各 shard 副本集成员 | `mongodb`（shard 上的 mongod） |
+
+`mongos` 使用精简 `dbConfig`，通常只包含 `slowOpThresholdMs`、`destination` 等参数，无 oplog 段。
+
+### 3.4.3 自动计算参数
+
+部署时会覆盖模板里的 `cacheSizeGB`、`oplogSizeMB`：
+
+| 输出参数 | 计算公式（概念） | 关联输入 |
+| --- | --- | --- |
+| `cacheSizeGB` | `int(主机内存 MB × 0.65 / 单机部署实例数 / 1024)`，最小 1 | 主机规格、单机部署实例数 |
+| `oplogSizeMB` | `int(数据盘 GB × 1024 × (oplog_percent ÷ 100) / 单机部署实例数)` | 数据盘容量、`oplog_percent`、单机部署实例数 |
+
+说明：
+
+- **单机部署实例数**：`node_replica_count`，即同一台机器上跑几个 mongod 端口。
+- **数据盘**：优先 `/data1`，否则 `/data`，以节点实际目录为准。
+- 模板中的 `value_default` 多用于配置中心校验和展示；新集群安装以计算值为准。
 
 ---
 
