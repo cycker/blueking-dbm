@@ -170,7 +170,51 @@ db.users.dropIndex("name_1")                        // 按索引名删除（名�
 
 ---
 
-## 5.7 运维常用一条命令（拓扑相关）
+## 5.7 MongoDB 数据类型
+
+MongoDB 文档底层使用 **BSON**。在 `mongosh` 中看起来像 JSON，但实际比 JSON 多了 `ObjectId`、`Date`、`Long`、`Decimal128`、`BinData` 等类型。
+
+| 类型 | 示例 | 常见用途 / 注意点 |
+|------|------|-------------------|
+| `String` | `"Alice"` | 字符串 |
+| `Boolean` | `true` / `false` | 布尔值 |
+| `Int32` | `NumberInt(100)` | 32 位整数；老脚本中常见 |
+| `Long` / `Int64` | `NumberLong("9223372036854775807")` | 64 位整数；大 ID、计数值建议显式使用 |
+| `Double` | `3.14` | 浮点数；不适合金额等精确计算 |
+| `Decimal128` | `NumberDecimal("19.99")` | 高精度小数；金额、费率等建议使用 |
+| `ObjectId` | `ObjectId("64f...")` | 默认 `_id` 类型，包含时间戳信息 |
+| `Date` | `ISODate("2026-05-20T08:00:00Z")` | UTC 时间；展示时注意时区 |
+| `Array` | `["vip", "active"]` | 数组字段，可建多键索引 |
+| `Object` | `{ profile: { city: "SZ" } }` | 嵌套文档，可用点号查询 |
+| `Null` | `null` | 空值；与字段不存在不是同一回事 |
+| `BinData` | `BinData(0, "...")` | 二进制数据，业务排障中较少直接手写 |
+
+常见写法：
+
+```javascript
+db.users.insertOne({
+  _id: ObjectId(),
+  name: "Alice",
+  age: NumberInt(30),
+  balance: NumberDecimal("19.99"),
+  created_at: ISODate("2026-05-20T08:00:00Z"),
+  tags: ["vip", "active"],
+  profile: {
+    city: "Shenzhen"
+  }
+})
+```
+
+> ⚠ **运维提醒**
+>
+> - JSON 文本里的数字不一定能保留业务期望的整数宽度；大整数建议显式使用 `NumberLong("...")`。
+> - 金额、费率不要用普通浮点数表达，优先使用 `NumberDecimal("...")`。
+> - `Date` 在 MongoDB 内部按 UTC 存储；排查日志和业务时间时要统一时区。
+> - `{ field: null }` 会匹配字段值为 `null` 的文档，也可能匹配字段不存在的文档；需要严格区分时结合 `$exists`。
+
+---
+
+## 5.8 运维常用一条命令（拓扑相关）
 
 ### 🔗 副本集状态
 
@@ -290,7 +334,7 @@ databases
 
 ---
 
-## 5.8 边界说明
+## 5.9 边界说明
 
 - 本章不覆盖**聚合管道（aggregation）**、**多文档事务**、**Change Streams**、**分片键与 balancer** 等；请参阅官方手册。
 - 权限以部署侧配置的认证规则为准；`db.runCommand({ connectionStatus: 1 })` 可查看当前认证用户等信息。

@@ -183,7 +183,7 @@ m1  m2  m3  m4  ……  backup
 
 ---
 
-## 2.5 Shard Key（分片键）怎么理解
+## 2.5 Shard Key（分片键）
 
 **Shard Key** 是分片集群最重要的设计点：MongoDB 根据集合的分片键把文档划分为多个 **chunk**，再把 chunk 分布到不同 shard。选错 shard key，会直接影响写入是否打满单 shard、查询是否 scatter-gather、后续扩容是否均衡。
 
@@ -287,19 +287,6 @@ sh.setBalancerState(false)
 > Shard key 是**业务建模决策**，不是单纯的运维参数。DBM 可以部署分片集群、扩容 shard、观察 chunk / balancer 状态，但不应替业务随意决定集合分片键。生产集合分片前，建议先基于真实查询、写入分布、数据增长模型做评审。
 
 MongoDB 5.0+ 提供 **resharding** 能力，但迁移成本仍然不低；不要把它当成“分片键选错也没关系”的兜底方案。相关排障可结合 [第 9 章慢日志](09-mongodb-logs.md) 与 [第 13 章分片大盘](13-performance-views.md)。
-
----
-
-## 2.6 UI 字段含义对照
-
-集群列表 / 详情中常见的拓扑分组字段：
-
-| 字段 / 分组 | 含义 | 出现场景 |
-|-------------|------|----------|
-| `mongos` | 分片集群接入层实例 | 分片集群 |
-| `mongo_config` | Config Server 角色实例 | 分片集群 |
-| `mongodb` | 存储节点（副本集成员或 shard 上的 mongod） | 两类集群 |
-| `master_domain` / `cluster_entry` | 访问入口域名 / 端口（以界面为准） | 两类集群 |
 
 ---
 
