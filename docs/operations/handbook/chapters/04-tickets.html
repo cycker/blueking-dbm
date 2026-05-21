@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>第 4 章 · 控制台与工单：日常运维路径 | MongoDB 手册</title>
+<title>第 4 章 · 单据系统（Tickets） | MongoDB 手册</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../assets/style.css?v=20260520c" />
@@ -14,94 +14,8 @@
   <main class="main">
     <nav class="crumb"><a href="../index.html">🏠 首页</a><span class="sep">/</span><span>第 4 章</span><span class="sep">/</span><span style="color:#cbd5e1">第 4 章 · 控制台与工单：日常运维路径</span></nav>
     <h1 class="page-title">第 4 章 · 控制台与工单：日常运维路径</h1>
-    <p class="page-lead">工单中文名与分组以本章为准；<strong>权威枚举</strong>见 <code>dbm-ui/backend/ticket/constants.py</code> 中 <code>TicketType</code> 的 <code>MONGODB_*</code> 定义（约 616 ~ 656 行）。</p>
-<section class="section" id="工单全景概览">
-  <h2><span class="ix">4</span>工单全景概览</h2>
-<table class="tbl"><thead><tr><th>分组</th><th>数量</th><th>关键词</th></tr></thead><tbody>
-<tr><td>🚀 部署生命周期</td><td>6</td><td>部署 / 启用 / 禁用 / 删除</td></tr>
-<tr><td>💾 备份回档</td><td>6</td><td>全备 / 库表备份 / PITR / 迁移</td></tr>
-<tr><td>📈 扩缩容拓扑</td><td>8</td><td>mongos / shard / 节点数 / 容量</td></tr>
-<tr><td>🔧 主机与实例维护</td><td>7</td><td>替换 / 重启 / 下架 / 标准化</td></tr>
-<tr><td>📦 数据与脚本</td><td>4</td><td>清档 / 导入 / 导出 / 脚本</td></tr>
-<tr><td>🔐 权限</td><td>2</td><td>授权 / Excel 授权</td></tr>
-<tr><td>🔌 插件与观测</td><td>4</td><td>CLB / DBMon / 自愈</td></tr>
-</tbody></table>
-</section>
-<section class="section" id="41-部署与生命周期6-项">
-  <h2><span class="ix">4.1</span>部署与生命周期（6 项）</h2>
-<table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody>
-<tr><td>MongoDB 副本集集群部署</td><td><code>MONGODB_REPLICASET_APPLY</code></td></tr>
-<tr><td>MongoDB 分片集群部署</td><td><code>MONGODB_SHARD_APPLY</code></td></tr>
-<tr><td>MongoDB 集群启用</td><td><code>MONGODB_ENABLE</code></td></tr>
-<tr><td>MongoDB 集群禁用</td><td><code>MONGODB_DISABLE</code></td></tr>
-<tr><td>MongoDB 集群删除</td><td><code>MONGODB_DESTROY</code></td></tr>
-<tr><td>MongoDB 临时集群销毁</td><td><code>MONGODB_TEMPORARY_DESTROY</code></td></tr>
-</tbody></table>
-</section>
-<section class="section" id="42-备份与回档6-项">
-  <h2><span class="ix">4.2</span>备份与回档（6 项）</h2>
-<table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody>
-<tr><td>MongoDB 全库备份</td><td><code>MONGODB_FULL_BACKUP</code></td></tr>
-<tr><td>MongoDB 库表备份</td><td><code>MONGODB_BACKUP</code></td></tr>
-<tr><td>MongoDB 定点回档</td><td><code>MONGODB_RESTORE</code></td></tr>
-<tr><td>MongoDB Pitr 回档</td><td><code>MONGODB_PITR_RESTORE</code></td></tr>
-<tr><td>MongoDB 副本集集群迁移</td><td><code>MONGODB_REPLICASET_MIGRATE</code></td></tr>
-<tr><td>MongoDB 分片集群迁移</td><td><code>MONGODB_SHARD_MIGRATE</code></td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠ <strong>易踩坑</strong>：以 DBM 工单语义为准；<strong>不要</strong>默认等价 MySQL <code>xtrabackup</code> 或 Redis RDB/AOF 的同一套路径与文件布局。</div></div>
-</section>
-<section class="section" id="43-扩缩容与拓扑变更8-项">
-  <h2><span class="ix">4.3</span>扩缩容与拓扑变更（8 项）</h2>
-<table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody>
-<tr><td>MongoDB 扩容接入层</td><td><code>MONGODB_ADD_MONGOS</code></td></tr>
-<tr><td>MongoDB 缩容接入层</td><td><code>MONGODB_REDUCE_MONGOS</code></td></tr>
-<tr><td>MongoDB 增加分片数</td><td><code>MONGODB_ADD_SHARD</code></td></tr>
-<tr><td>MongoDB 扩容分片集群 shard 节点数</td><td><code>MONGODB_SHARD_ADD_SHARD_NODES</code></td></tr>
-<tr><td>MongoDB 扩容副本集集群 shard 节点数</td><td><code>MONGODB_REPLICA_ADD_SHARD_NODES</code></td></tr>
-<tr><td>MongoDB 扩容 shard 节点数</td><td><code>MONGODB_ADD_SHARD_NODES</code></td></tr>
-<tr><td>MongoDB 缩容 shard 节点数</td><td><code>MONGODB_REDUCE_SHARD_NODES</code></td></tr>
-<tr><td>MongoDB 集群容量变更</td><td><code>MONGODB_SCALE_UPDOWN</code></td></tr>
-</tbody></table>
-</section>
-<section class="section" id="44-主机与实例维护7-项">
-  <h2><span class="ix">4.4</span>主机与实例维护（7 项）</h2>
-<table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody>
-<tr><td>MongoDB 分片集群整机替换</td><td><code>MONGODB_SHARD_CUTOFF</code></td></tr>
-<tr><td>MongoDB 副本集整机替换</td><td><code>MONGODB_REPLICASET_CUTOFF</code></td></tr>
-<tr><td>MongoDB 整机替换</td><td><code>MONGODB_CUTOFF</code></td></tr>
-<tr><td>MongoDB 实例重启</td><td><code>MONGODB_INSTANCE_RELOAD</code></td></tr>
-<tr><td>MongoDB 实例下架</td><td><code>MONGODB_INSTANCE_DEINSTALL</code></td></tr>
-<tr><td>MongoDB 节点状态修复</td><td><code>MONGODB_INSTANCE_FIX_STATUS</code></td></tr>
-<tr><td>MongoDB 集群标准化</td><td><code>MONGODB_CLUSTER_STANDARDIZE</code></td></tr>
-</tbody></table>
-</section>
-<section class="section" id="45-数据与脚本4-项">
-  <h2><span class="ix">4.5</span>数据与脚本（4 项）</h2>
-<table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody>
-<tr><td>MongoDB 清档</td><td><code>MONGODB_REMOVE_NS</code></td></tr>
-<tr><td>MongoDB 数据导出</td><td><code>MONGODB_DATA_EXPORT</code></td></tr>
-<tr><td>MongoDB 数据导入</td><td><code>MONGODB_IMPORT</code></td></tr>
-<tr><td>MongoDB 变更脚本执行</td><td><code>MONGODB_EXEC_SCRIPT_APPLY</code></td></tr>
-</tbody></table>
-</section>
-<section class="section" id="46-权限2-项">
-  <h2><span class="ix">4.6</span>权限（2 项）</h2>
-<table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody>
-<tr><td>MongoDB 授权</td><td><code>MONGODB_AUTHORIZE_RULES</code></td></tr>
-<tr><td>MongoDB Excel 授权</td><td><code>MONGODB_EXCEL_AUTHORIZE_RULES</code></td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">💡 <strong>权限模型差异</strong>：MongoDB 的用户与角色模型与 MySQL <code>GRANT</code>、Redis <code>ACL</code> 不同；授权请走上述工单，不要试图用 mongosh 直接 <code>db.createUser</code> 绕过平台。</div></div>
-</section>
-<section class="section" id="47-插件与观测4-项">
-  <h2><span class="ix">4.7</span>插件与观测（4 项）</h2>
-<table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody>
-<tr><td>MongoDB 创建 CLB</td><td><code>MONGODB_PLUGIN_CREATE_CLB</code></td></tr>
-<tr><td>MongoDB 删除 CLB</td><td><code>MONGODB_PLUGIN_DELETE_CLB</code></td></tr>
-<tr><td>MongoDB 安装 DBMon</td><td><code>MONGODB_INSTALL_DBMON</code></td></tr>
-<tr><td>MongoDB 故障自愈</td><td><code>MONGODB_AUTOFIX</code></td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">🔗 <strong>DBHA / 自愈</strong>：mongos 接入层 DBHA 与 <code>MONGODB_AUTOFIX</code> 触发链路见 <a href="14-dbha-autofix.html">第 14 章</a>。 🔗 <strong>bk-dbmon 详解</strong>（安装路径、启停、<code>meta</code>/<code>alarm</code>/<code>config</code>、与蓝鲸监控对接、Flow 入参）：见 <a href="06-bk-dbmon.html">第 6 章</a>。</div></div>
-</section>
+    <p class="page-lead">工单中文名与分组以本章为准；具体常量定义以 DBM 平台工单枚举为准。</p>
+<section class="section" id="工单全景概览"><h2><span class="ix">·</span>工单全景概览</h2><table class="tbl"><thead><tr><th>分组</th><th>数量</th><th>关键词</th></tr></thead><tbody><tr><td>🚀 部署生命周期</td><td>6</td><td>部署 / 启用 / 禁用 / 删除</td></tr><tr><td>💾 备份回档</td><td>6</td><td>全备 / 库表备份 / PITR / 迁移</td></tr><tr><td>📈 扩缩容拓扑</td><td>8</td><td>mongos / shard / 节点数 / 容量</td></tr><tr><td>🔧 主机与实例维护</td><td>7</td><td>替换 / 重启 / 下架 / 标准化</td></tr><tr><td>📦 数据与脚本</td><td>4</td><td>清档 / 导入 / 导出 / 脚本</td></tr><tr><td>🔐 权限</td><td>2</td><td>授权 / Excel 授权</td></tr><tr><td>🔌 插件与观测</td><td>4</td><td>CLB / DBMon / 自愈</td></tr></tbody></table></section><section class="section" id="4-1-部署与生命周期-6-项"><h2><span class="ix">4.1</span>部署与生命周期（6 项）</h2><table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody><tr><td>MongoDB 副本集集群部署</td><td><code>MONGODB_REPLICASET_APPLY</code></td></tr><tr><td>MongoDB 分片集群部署</td><td><code>MONGODB_SHARD_APPLY</code></td></tr><tr><td>MongoDB 集群启用</td><td><code>MONGODB_ENABLE</code></td></tr><tr><td>MongoDB 集群禁用</td><td><code>MONGODB_DISABLE</code></td></tr><tr><td>MongoDB 集群删除</td><td><code>MONGODB_DESTROY</code></td></tr><tr><td>MongoDB 临时集群销毁</td><td><code>MONGODB_TEMPORARY_DESTROY</code></td></tr></tbody></table></section><section class="section" id="4-2-备份与回档-6-项"><h2><span class="ix">4.2</span>备份与回档（6 项）</h2><table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody><tr><td>MongoDB 全库备份</td><td><code>MONGODB_FULL_BACKUP</code></td></tr><tr><td>MongoDB 库表备份</td><td><code>MONGODB_BACKUP</code></td></tr><tr><td>MongoDB 定点回档</td><td><code>MONGODB_RESTORE</code></td></tr><tr><td>MongoDB Pitr 回档</td><td><code>MONGODB_PITR_RESTORE</code></td></tr><tr><td>MongoDB 副本集集群迁移</td><td><code>MONGODB_REPLICASET_MIGRATE</code></td></tr><tr><td>MongoDB 分片集群迁移</td><td><code>MONGODB_SHARD_MIGRATE</code></td></tr></tbody></table><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>易踩坑</strong>：以 DBM 工单语义为准；<strong>不要</strong>默认等价 MySQL <code>xtrabackup</code> 或 Redis RDB/AOF 的同一套路径与文件布局。</p></div></div></section><section class="section" id="4-3-扩缩容与拓扑变更-8-项"><h2><span class="ix">4.3</span>扩缩容与拓扑变更（8 项）</h2><table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody><tr><td>MongoDB 扩容接入层</td><td><code>MONGODB_ADD_MONGOS</code></td></tr><tr><td>MongoDB 缩容接入层</td><td><code>MONGODB_REDUCE_MONGOS</code></td></tr><tr><td>MongoDB 增加分片数</td><td><code>MONGODB_ADD_SHARD</code></td></tr><tr><td>MongoDB 扩容分片集群 shard 节点数</td><td><code>MONGODB_SHARD_ADD_SHARD_NODES</code></td></tr><tr><td>MongoDB 扩容副本集集群 shard 节点数</td><td><code>MONGODB_REPLICA_ADD_SHARD_NODES</code></td></tr><tr><td>MongoDB 扩容 shard 节点数</td><td><code>MONGODB_ADD_SHARD_NODES</code></td></tr><tr><td>MongoDB 缩容 shard 节点数</td><td><code>MONGODB_REDUCE_SHARD_NODES</code></td></tr><tr><td>MongoDB 集群容量变更</td><td><code>MONGODB_SCALE_UPDOWN</code></td></tr></tbody></table></section><section class="section" id="4-4-主机与实例维护-7-项"><h2><span class="ix">4.4</span>主机与实例维护（7 项）</h2><table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody><tr><td>MongoDB 分片集群整机替换</td><td><code>MONGODB_SHARD_CUTOFF</code></td></tr><tr><td>MongoDB 副本集整机替换</td><td><code>MONGODB_REPLICASET_CUTOFF</code></td></tr><tr><td>MongoDB 整机替换</td><td><code>MONGODB_CUTOFF</code></td></tr><tr><td>MongoDB 实例重启</td><td><code>MONGODB_INSTANCE_RELOAD</code></td></tr><tr><td>MongoDB 实例下架</td><td><code>MONGODB_INSTANCE_DEINSTALL</code></td></tr><tr><td>MongoDB 节点状态修复</td><td><code>MONGODB_INSTANCE_FIX_STATUS</code></td></tr><tr><td>MongoDB 集群标准化</td><td><code>MONGODB_CLUSTER_STANDARDIZE</code></td></tr></tbody></table></section><section class="section" id="4-5-数据与脚本-4-项"><h2><span class="ix">4.5</span>数据与脚本（4 项）</h2><table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody><tr><td>MongoDB 清档</td><td><code>MONGODB_REMOVE_NS</code></td></tr><tr><td>MongoDB 数据导出</td><td><code>MONGODB_DATA_EXPORT</code></td></tr><tr><td>MongoDB 数据导入</td><td><code>MONGODB_IMPORT</code></td></tr><tr><td>MongoDB 变更脚本执行</td><td><code>MONGODB_EXEC_SCRIPT_APPLY</code></td></tr></tbody></table></section><section class="section" id="4-6-权限-2-项"><h2><span class="ix">4.6</span>权限（2 项）</h2><table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody><tr><td>MongoDB 授权</td><td><code>MONGODB_AUTHORIZE_RULES</code></td></tr><tr><td>MongoDB Excel 授权</td><td><code>MONGODB_EXCEL_AUTHORIZE_RULES</code></td></tr></tbody></table><div class="callout tip"><div class="ico">✅</div><div class="body"><p>💡 <strong>权限模型差异</strong>：MongoDB 的用户与角色模型与 MySQL <code>GRANT</code>、Redis <code>ACL</code> 不同；授权请走上述工单，不要试图用 mongosh 直接 <code>db.createUser</code> 绕过平台。</p></div></div></section><section class="section" id="4-7-插件与观测-4-项"><h2><span class="ix">4.7</span>插件与观测（4 项）</h2><table class="tbl"><thead><tr><th>中文名</th><th>常量</th></tr></thead><tbody><tr><td>MongoDB 创建 CLB</td><td><code>MONGODB_PLUGIN_CREATE_CLB</code></td></tr><tr><td>MongoDB 删除 CLB</td><td><code>MONGODB_PLUGIN_DELETE_CLB</code></td></tr><tr><td>MongoDB 安装 DBMon</td><td><code>MONGODB_INSTALL_DBMON</code></td></tr><tr><td>MongoDB 故障自愈</td><td><code>MONGODB_AUTOFIX</code></td></tr></tbody></table><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong><code>MONGODB_INSTALL_DBMON</code> 的实际触发入口</strong>：日常并非作为独立菜单暴露，bk-dbmon 的安装 / 更新走 §4.4 的「集群标准化」(<code>MONGODB_CLUSTER_STANDARDIZE</code>)；新部署、扩缩容、整机替换等场景会自动顺带安装，不必单独提单。详见 <a href="06-bk-dbmon.html">第 6 章 §6.2</a>。</p></div></div><div class="callout info"><div class="ico">💡</div><div class="body"><p>🔗 <strong>DBHA / 自愈</strong>：mongos 接入层 DBHA 与 <code>MONGODB_AUTOFIX</code> 触发链路见 <a href="14-dbha-autofix.html">第 14 章</a>。 🔗 <strong>bk-dbmon 详解</strong>（安装路径、启停、<code>meta</code>/<code>alarm</code>/<code>config</code>、与蓝鲸监控对接、Flow 入参）：见 <a href="06-bk-dbmon.html">第 6 章</a>。</p></div></div></section><nav class="pager"><a href="03-first-deploy.html"><span class="arrow">⬅</span><span><span class="lbl">PREV</span><span class="ttl">← 第 3 章 数据目录和配置文件</span></span></a><a class="next" href="05-mongosh.html"><span><span class="lbl">NEXT</span><span class="ttl">第 5 章 mongosh →</span></span><span class="arrow">➡</span></a></nav>
   </main>
 </div>
 <script src="../assets/app.js?v=20260520c"></script>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>第 9 章 · MongoDB 日志（配置、排障与各版本差异） | MongoDB 手册</title>
+<title>第 9 章 · MongoDB 日志（各版本差异） | MongoDB 手册</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../assets/style.css?v=20260520c" />
@@ -15,262 +15,20 @@
     <nav class="crumb"><a href="../index.html">🏠 首页</a><span class="sep">/</span><span>第 9 章</span><span class="sep">/</span><span style="color:#cbd5e1">第 9 章 · MongoDB 日志（配置、排障与各版本差异）</span></nav>
     <h1 class="page-title">第 9 章 · MongoDB 日志（配置、排障与各版本差异）</h1>
     <p class="page-lead">本章说明 <strong>mongod / mongos 进程日志</strong>、<strong>慢查询 / Profiler</strong> 与 <strong>复制 oplog</strong> 的区别，并按 <strong>2.4～8.0</strong> 归纳配置形态与字段差异。蓝鲸 DBM 安装参数以 <code>dbactuator</code> 为准。</p>
-<section class="section" id="91-先分清三类日志">
-  <h2><span class="ix">9.1</span>先分清三类「日志」</h2>
-<table class="tbl"><thead><tr><th>名称</th><th>本质</th><th>典型路径 / 位置</th><th>运维用途</th></tr></thead><tbody>
-<tr><td><strong>Server Log（诊断日志）</strong></td><td>mongod/mongos 进程写的文本或 JSON 日志</td><td>DBM 默认见 <a href="#92-蓝鲸-dbm-默认路径">§9.2</a></td><td>启动失败、复制、选举、连接、断言、部分慢操作摘要</td></tr>
-<tr><td><strong>oplog（复制日志）</strong></td><td>副本集变更流；<strong>角色上相当于 MySQL 的 binlog</strong></td><td><code>local.oplog.rs</code>（capped 集合）</td><td>从节点复制、增量备份、PITR；与 server log <strong>无关</strong></td></tr>
-<tr><td><strong>Profiler / 慢查询</strong></td><td>超过阈值的操作用文档或日志行记录</td><td><code>system.profile</code> 集合 + server log 中的 <code>COMMAND</code>/<code>planSummary</code> 等</td><td>性能排障、索引设计（见 <a href="10-indexes.html">第 10 章 · 索引</a>）</td></tr>
-</tbody></table>
-<p><strong>MySQL 对照（便于迁移心智）</strong>：</p>
-<table class="tbl"><thead><tr><th>MySQL</th><th>MongoDB</th><th>说明</th></tr></thead><tbody>
-<tr><td><strong>binlog</strong></td><td><strong>oplog</strong>（<code>local.oplog.rs</code>）</td><td>记录变更、供复制与增量恢复；DBM 备份里的 INCR 产物即基于 oplog</td></tr>
-<tr><td><strong>redo log</strong></td><td>（本章不展开）</td><td>存储引擎层 WAL，与 oplog / <code>mongo.log</code> 不是同一类对象</td></tr>
-<tr><td><strong>slow log</strong></td><td><strong>server log</strong> 中的 Slow query + <code>system.profile</code></td><td>见 §9.5、§9.8</td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠️ <strong>常见误区</strong>：在 3.0 以下集群里只改 YAML 却不改 INI 里的 <code>logpath</code>；把 <strong>oplog</strong> 当成可读慢查询日志。</div></div>
-</section>
-<section class="section" id="92-蓝鲸-dbm-默认路径">
-  <h2><span class="ix">9.2</span>蓝鲸 DBM 默认路径</h2>
-<p>安装时由 <code>dbactuator</code> 写入配置（3.0+ 为 YAML <code>systemLog.path</code>，更早为 INI <code>logpath</code>）：</p>
-<table class="tbl"><thead><tr><th>角色</th><th>默认日志文件（示例）</th><th>源码依据</th></tr></thead><tbody>
-<tr><td><strong>mongod</strong></td><td><code>{BackupDir}/mongolog/{port}/mongo.log</code></td><td><code>mongod_install.go</code></td></tr>
-<tr><td><strong>mongos</strong></td><td><code>{DataDir}/mongolog/{port}/mongo.log</code></td><td><code>mongos_install.go</code></td></tr>
-</tbody></table>
-<p>常见安装参数（与日志相关）：</p>
-<pre><code class="language-yaml">systemLog:
+<section class="section" id="9-1-先分清三类「日志」"><h2><span class="ix">9.1</span>先分清三类「日志」</h2><table class="tbl"><thead><tr><th>名称</th><th>本质</th><th>典型路径 / 位置</th><th>运维用途</th></tr></thead><tbody><tr><td><strong>Server Log（诊断日志）</strong></td><td>mongod/mongos 进程写的文本或 JSON 日志</td><td>DBM 默认见 <a href="#92-蓝鲸-dbm-默认路径">§9.2</a></td><td>启动失败、复制、选举、连接、断言、部分慢操作摘要</td></tr><tr><td><strong>oplog（复制日志）</strong></td><td>副本集变更流；<strong>角色上相当于 MySQL 的 binlog</strong></td><td><code>local.oplog.rs</code>（capped 集合）</td><td>从节点复制、增量备份、PITR；与 server log <strong>无关</strong></td></tr><tr><td><strong>Profiler / 慢查询</strong></td><td>超过阈值的操作用文档或日志行记录</td><td><code>system.profile</code> 集合 + server log 中的 <code>COMMAND</code>/<code>planSummary</code> 等</td><td>性能排障、索引设计（见 <a href="10-indexes.html">第 10 章 · 索引</a>）</td></tr></tbody></table><p><strong>MySQL 对照（便于迁移心智）</strong>：</p><table class="tbl"><thead><tr><th>MySQL</th><th>MongoDB</th><th>说明</th></tr></thead><tbody><tr><td><strong>binlog</strong></td><td><strong>oplog</strong>（<code>local.oplog.rs</code>）</td><td>记录变更、供复制与增量恢复；DBM 备份里的 INCR 产物即基于 oplog</td></tr><tr><td><strong>redo log</strong></td><td>（本章不展开）</td><td>存储引擎层 WAL，与 oplog / <code>mongo.log</code> 不是同一类对象</td></tr><tr><td><strong>slow log</strong></td><td><strong>server log</strong> 中的 Slow query + <code>system.profile</code></td><td>见 §9.5、§9.8</td></tr></tbody></table></section><section class="section" id="9-2-蓝鲸-dbm-默认路径"><h2><span class="ix">9.2</span>蓝鲸 DBM 默认路径</h2><p>安装时由 <code>dbactuator</code> 写入配置（3.0+ 为 YAML <code>systemLog.path</code>，更早为 INI <code>logpath</code>）：</p><table class="tbl"><thead><tr><th>角色</th><th>默认日志文件（示例）</th><th>源码依据</th></tr></thead><tbody><tr><td><strong>mongod</strong></td><td><code>{BackupDir}/mongolog/{port}/mongo.log</code></td><td><code>mongod_install.go</code></td></tr><tr><td><strong>mongos</strong></td><td><code>{DataDir}/mongolog/{port}/mongo.log</code></td><td><code>mongos_install.go</code></td></tr></tbody></table><p>常见安装参数（与日志相关）：</p><pre><code class="lang-yaml">systemLog:
   destination: file
   logAppend: true
   path: /data/.../mongolog/27017/mongo.log
 operationProfiling:
-  slowOpThresholdMs: 200   # 平台默认可配，见安装单据 / dbConfig</code></pre>
-<h3>bk-dbmon · parselog：旧版文本日志 → 统一 JSON</h3>
-<p>蓝鲸 <strong>bk-dbmon</strong> 内置 <code>logparser</code> 任务（集群配置段 <code>**parselog</code><strong>），在实例机上 </strong>tail<strong> 读取 <code>systemLog.path</code> 指向的 `</strong>mongo.log<code>**，将各行解析为 **统一结构的 JSON 行** 写入同目录下的 </code><strong>jsonlog/`</strong>，供日志平台 / 慢查询分析等下游采集。<strong>不修改</strong> mongod 原始 <code>mongo.log</code>。</p>
-<table class="tbl"><thead><tr><th>项</th><th>说明</th></tr></thead><tbody>
-<tr><td>默认开关</td><td><code>parselog.enable = true</code>（<code>cluster-config</code> 默认项）</td></tr>
-<tr><td>源文件</td><td>与 mongod/mongos 配置一致，如 <code>{BackupDir}/mongolog/{port}/mongo.log</code></td></tr>
-<tr><td>输出目录</td><td><code>**{mongo.log 所在目录}/jsonlog/</code>**</td></tr>
-<tr><td>输出文件</td><td><code>jsonlog/mongo.log.{YYYYMMDD-HHMM}</code>，约 <strong>10 分钟</strong> 切分，保留约 <strong>4 小时</strong></td></tr>
-<tr><td>断点续读</td><td><code>jsonlog/.seek</code> 记录偏移与 inode，重启后接着读</td></tr>
-<tr><td>限流</td><td><code>parselog.max-record-per-second</code> 默认 <strong>10000</strong> 行/秒</td></tr>
-</tbody></table>
-<p><strong>按 MongoDB 日志形态自动选解析器</strong>（<code>dbmon/pkg/mongologparser</code>，与 server 大版本对应关系如下）：</p>
-<table class="tbl"><thead><tr><th>解析器</th><th>适用 server 日志形态</th><th>行首特征</th><th>parselog 行为</th></tr></thead><tbody>
-<tr><td><strong>V1</strong></td><td>2.4 时代纯文本</td><td>非 <code>{</code>、非 <code>20xx-</code> 时间戳</td><td>解析时间、组件、慢查询等，<strong>输出统一 JSON</strong></td></tr>
-<tr><td><strong>V2</strong></td><td>3.0～4.2 纯文本</td><td>以 <code>20xx-</code> 开头的时间戳行</td><td>同上，兼容 3.x/4.0～4.2 <strong>未开 <code>logFormat: json</code></strong> 的集群</td></tr>
-<tr><td><strong>V3</strong></td><td>4.4+ 原生 JSON 行</td><td>以 <code>{</code> 开头</td><td>解码后归一化为同一 <code>**MongoLogMsg</code>** 结构再写出（含慢查询 <code>id:51803</code> 等字段整理）</td></tr>
-</tbody></table>
-<p>因此：<strong>社区版即使未配置 Enterprise <code>auditLog</code>，且 4.4 之前仍是纯文本日志</strong>，只要开启 parselog，下游仍可只消费 <code>**jsonlog/</code> 里的 JSON<strong>，无需为每个大版本写一套正则。4.4+ 若已在 mongod 侧配置 <code>systemLog.logFormat: json</code>，parselog 会做 </strong>二次归一化**（字段拉平、元数据注入），与旧版文本路径产出格式一致。</p>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠️ <strong>注意</strong> - parselog <strong>占用 CPU</strong>（按行解析）；异常流量或 <code>profilingLevel=2</code> 导致日志暴增时，可临时关闭或调低 <code>max-record-per-second</code>。 - <strong><code>jsonlog/</code></strong> 是 parselog 解析产物，与 <strong>oplog</strong> 无关；原始排障仍以 <strong><code>mongo.log</code></strong> 为准。 - 输出文件仅保留数小时，<strong>不能</strong>当作长期归档；长期留存依赖平台侧采集与存储策略。</div></div>
-<p>关闭示例（见 <a href="06-bk-dbmon.html">第 6 章</a>）：</p>
-<pre><code class="language-bash">./bk-dbmon config set --port all -s parselog -k enable -V false</code></pre>
-<p>本地调试（读文件并写 jsonlog，见 <code>bk-dbmon debug parselog</code>）：</p>
-<pre><code class="language-bash">./bk-dbmon debug parselog --help</code></pre>
-<p>入库后的日志可在 DBM <strong>mongo-log 性能视图</strong> 中检索，见 <a href="13-performance-views.html">第 13 章</a>。排障仍建议保留 <strong>工单 Job 日志 + server log + DBMon 指标</strong> 三件套（见 <a href="15-appendix.html">第 15 章附录</a>）。</p>
-</section>
-<section class="section" id="93-配置形态ini2x30-vs-yaml30">
-  <h2><span class="ix">9.3</span>配置形态：INI（2.x～3.0） vs YAML（3.0+）</h2>
-<table class="tbl"><thead><tr><th>维度</th><th>2.4～3.0（EOL）</th><th>3.2+（YAML，DBM 现网主流）</th></tr></thead><tbody>
-<tr><td>配置文件</td><td><code>--config</code> 指向 <strong>INI/旧式 key=value</strong></td><td><code>--config</code> 指向 <strong>YAML</strong></td></tr>
-<tr><td>日志路径键</td><td><code>logpath=</code>、<code>logappend=true</code></td><td><code>systemLog.path</code>、<code>systemLog.logAppend</code></td></tr>
-<tr><td>慢查询阈值</td><td><code>slowms</code>（INI）或 <code>operationProfiling.slowOpThresholdMs</code></td><td>以 <code>operationProfiling.slowOpThresholdMs</code> 为主</td></tr>
-<tr><td>组件分级</td><td>主要靠 <code>-v</code> / <code>--verbose</code></td><td><code>systemLog.component.*.verbosity</code> + <code>setParameter</code></td></tr>
-</tbody></table>
-<p>DBM 仓库中 INI 模板（仅 3.0 以下介质仍可能用到）：</p>
-<pre><code class="language-ini">logpath={{logpath}}
-logappend=true</code></pre>
-<p>3.0+ 结构体字段见 <code>dbm-services/mongodb/db-tools/dbactuator/pkg/common/mongod_conf.go</code>（<code>systemLog</code>、<code>operationProfiling</code>）。</p>
-</section>
-<section class="section" id="94-server-log按版本对比">
-  <h2><span class="ix">9.4</span>Server Log：按版本对比</h2>
-<p>下表聚焦 <strong>运维最常碰到的差异</strong>；EOL 版本仅作迁移读史。细节以 <a href="https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options" target="_blank" rel="noopener">MongoDB systemLog</a> 与各版本 Release Notes 为准。</p>
-<table class="tbl"><thead><tr><th>版本段</th><th>配置 / 格式</th><th>内容与字段</th><th>轮转与 verbosity</th><th>备注</th><th></th><th></th></tr></thead><tbody>
-<tr><td><strong>2.4～3.0</strong> 🔴</td><td>INI <code>logpath</code>；无 <code>logFormat</code></td><td>纯文本；组件信息较少</td><td><code>logRotate</code> 能力弱；多用 OS <code>logrotate</code></td><td>MMAPv1 时代；<strong>禁止新装</strong></td><td></td><td></td></tr>
-<tr><td><strong>3.2～3.6</strong> 🔴</td><td>YAML <code>systemLog</code> 成熟；`destination: file</td><td>syslog`</td><td>文本；复制、选举、连接错误可读性提升</td><td>`logRotate: rename</td><td>reopen`</td><td>3.6 起 <strong>FTDC</strong> 诊断数据（<code>diagnostic.data</code>，非替代 server log）</td></tr>
-<tr><td><strong>4.0～4.2</strong> 🔴</td><td>同上 + 事务/分片事务相关日志行增多</td><td>慢操作、选举、<strong>txn</strong> 相关关键字增多</td><td><code>systemLog.component</code> 粒度扩展</td><td>4.0 起多文档事务日志需结合 <code>mongod.log</code> + <code>currentOp</code></td><td></td><td></td></tr>
-<tr><td><strong>4.4</strong> 🟡</td><td>引入 `**systemLog.logFormat: text</td><td>json`**</td><td>JSON 行便于 ELK / Loki；<code>attr</code> 结构化字段</td><td>组件 verbosity 与 <strong>慢查询日志字段</strong>增强（如 plan 信息更全）</td><td>升级后若采集规则按「行首时间戳」解析，需回归</td><td></td></tr>
-<tr><td><strong>5.0</strong> 🟡</td><td><code>logFormat</code>、Versioned API 并存</td><td>Time Series、resharding 相关新日志类型</td><td>弃用项见 5.0 Compatibility</td><td>与 <a href="07-versions.html">第 7 章</a> FCV 升级同步检查</td><td></td><td></td></tr>
-<tr><td><strong>6.0</strong> 🟢</td><td>JSON 日志在可观测性场景更常见</td><td>查询计划器变更可能导致 <strong>慢日志形态变化</strong></td><td>部分 <code>setParameter</code> 日志级别调整</td><td>升级后对比升级前后同一条 SQL 的慢日志</td><td></td><td></td></tr>
-<tr><td><strong>7.0～8.0</strong> 🟢🟣</td><td>Backward Incompatible 可能涉及日志字段</td><td>监控指标与日志字段增减见 Release Notes</td><td>Prometheus / Grafana 采集规则需回归</td><td>8.0 Queryable Encryption 等安全相关日志单独核对</td><td></td><td></td></tr>
-</tbody></table>
-<h3>4.4+ JSON 日志示例（节选）</h3>
-<pre><code class="language-json">{&quot;t&quot;:{&quot;$date&quot;:&quot;2025-05-19T08:00:01.123+00:00&quot;},&quot;s&quot;:&quot;I&quot;,&quot;c&quot;:&quot;COMMAND&quot;,&quot;id&quot;:51803,
- &quot;ctx&quot;:&quot;conn42&quot;,&quot;msg&quot;:&quot;Slow query&quot;,&quot;attr&quot;:{&quot;type&quot;:&quot;command&quot;,&quot;ns&quot;:&quot;game.users&quot;,
- &quot;durationMillis&quot;:312,&quot;planSummary&quot;:&quot;IXSCAN { _id: 1 }&quot;}}</code></pre>
-<p>采集侧建议：按 <strong>JSON 解析</strong> <code>msg</code> / <code>attr.durationMillis</code> / <code>attr.ns</code>，勿再依赖 3.x 时代的固定列宽文本正则。</p>
-</section>
-<section class="section" id="95-慢查询与-profiler按版本对比">
-  <h2><span class="ix">9.5</span>慢查询与 Profiler：按版本对比</h2>
-<table class="tbl"><thead><tr><th>能力</th><th>2.4～3.6</th><th>4.0+</th><th>5.0+</th><th>说明</th><th></th><th></th></tr></thead><tbody>
-<tr><td><strong>阈值配置</strong></td><td><code>slowms</code>（INI）或 <code>slowOpThresholdMs</code></td><td>同左</td><td>同左</td><td>DBM 安装常见 <strong>200ms</strong></td><td></td><td></td></tr>
-<tr><td><strong>Profiler 级别</strong></td><td>`db.setProfilingLevel(0</td><td>1</td><td>2)`</td><td>同左</td><td>同左</td><td><code>1</code>=只记慢操作；<code>2</code>=全量（<strong>生产慎用</strong>）</td></tr>
-<tr><td><strong>落库位置</strong></td><td><code>system.profile</code>（固定大小 capped）</td><td>同左</td><td>同左</td><td>与 server log 中 Slow query <strong>可能重复</strong></td><td></td><td></td></tr>
-<tr><td><strong>分片 / mongos</strong></td><td>mongos 上慢查询行为与 mongod 不同</td><td>4.2+ 分片事务慢日志更复杂</td><td>以当前版本 manual 为准</td><td>案例见 <a href="12-cases.html">第 12 章</a> 慢查询条目</td><td></td><td></td></tr>
-<tr><td><strong>索引隐藏</strong></td><td>无</td><td>4.4+ <code>hiddenIndex</code> 影响 plan</td><td>6.0+ 计划器变更</td><td>慢日志里关注 <code>planSummary</code> 是否为 <strong>COLLSCAN</strong>，见 <a href="#98-慢日志中的-collscan全表扫描">§9.8</a></td><td></td><td></td></tr>
-</tbody></table>
-<p><strong>推荐生产组合</strong>（DBM 场景）：</p>
-<ol>
-  <li><code>operationProfiling.slowOpThresholdMs</code> 与业务 SLA 对齐（100～500ms 常见）。</li>
-  <li><strong>不要</strong>长期 <code>profilingLevel=2</code>。</li>
-  <li>平台 <strong>parselog + 慢查询分析</strong> 与 <code>db.currentOp()</code> / <code>explain</code> 交叉验证。</li>
-  <li>大版本升级后抽 10 条历史慢 SQL <strong>对比升级前后日志字段</strong>是否仍能被正则 / JSON 路径命中。</li>
-</ol>
-<h3>9.5.1 日志里的 <code>command</code> 与 <code>find</code> / <code>update</code> / <code>aggregate</code> 是什么关系</h3>
-<p>慢日志里经常出现 <strong><code>COMMAND</code> 组件</strong>、字段 <strong><code>type: &quot;command&quot;</code></strong>，以及正文里的 <strong><code>command: find { ... }</code></strong>——三者层级不同，混用会导致「明明在查表，日志却全是 command」的误解。</p>
-<h4>三层结构（由外到内）</h4>
-<table class="tbl"><thead><tr><th>层级</th><th>字段 / 位置</th><th>含义</th><th>示例</th></tr></thead><tbody>
-<tr><td><strong>① 日志组件</strong></td><td>文本行 <code>I COMMAND</code>；JSON <code>&quot;c&quot;:&quot;COMMAND&quot;</code></td><td>本条日志由 <strong>COMMAND 子系统</strong>打出；慢查询（<code>id:51803</code>）几乎都归此类</td><td>不等于「业务指令名叫 command」</td></tr>
-<tr><td><strong>② 操作类型</strong></td><td>文本 <code>command: find</code> 前的类别；JSON <code>attr.type</code></td><td>MongoDB 对本次操作的 <strong>粗分类</strong></td><td><code>query</code>、<code>command</code>、<code>update</code>、<code>remove</code>、<code>insert</code>、<code>getmore</code> 等</td></tr>
-<tr><td><strong>③ 真实指令</strong></td><td>文本 <code>command: find { find:&quot;coll&quot;, ... }</code>；JSON <code>attr.command</code> 对象 <strong>第一个业务键</strong></td><td>应用实际下发的命令</td><td><code>find</code>、<code>aggregate</code>、<code>update</code>、<code>delete</code>、<code>getMore</code>、<code>count</code> …</td></tr>
-</tbody></table>
-<p><strong>记忆口诀</strong>：<code>c=COMMAND</code> 是「柜台」；<code>type</code> 是「业务大类」；<code>command.find / command.aggregate</code> 才是「具体办了什么事」。</p>
-<h4>业务操作 ↔ 日志对照（4.4+ JSON 慢日志为主）</h4>
-<table class="tbl"><thead><tr><th>应用层操作</th><th>常见 <code>attr.type</code></th><th>看 <code>attr.command</code> 里的键</th><th>是否常有 <code>planSummary</code></th></tr></thead><tbody>
-<tr><td><code>find()</code></td><td><code>query</code> <strong>或</strong> <code>command</code></td><td><code>find</code></td><td>✅ 读路径</td></tr>
-<tr><td><code>aggregate()</code></td><td>多为 <code>command</code></td><td><code>aggregate</code>（管道在 <code>pipeline</code>）</td><td>✅ 可能有 <code>hasSortStage</code></td></tr>
-<tr><td><code>update()</code> / <code>updateMany()</code></td><td><code>update</code></td><td><code>update</code> + <code>q</code> / <code>u</code></td><td>一般无 COLLSCAN 指标时仍看 <code>docsExamined</code></td></tr>
-<tr><td><code>delete()</code> / <code>remove()</code></td><td><code>remove</code></td><td><code>delete</code> + <code>deletes</code></td><td>写路径</td></tr>
-<tr><td><code>insert()</code> / <code>insertMany()</code></td><td><code>insert</code></td><td><code>insert</code> + <code>documents</code></td><td>写路径</td></tr>
-<tr><td>游标拉取下一批</td><td><code>command</code></td><td><code>getMore</code>；聚合慢时常带 <strong><code>originatingCommand.aggregate</code></strong></td><td>延续首包计划</td></tr>
-<tr><td><code>createIndex</code> 等管理命令</td><td><code>command</code></td><td><code>createIndexes</code>、<code>dropIndexes</code> 等</td><td>与查询优化相关</td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠️ <strong><code>type: &quot;command&quot;</code> 不等于「非 find/update」</strong> 4.4+ 很多 <strong><code>find</code> 慢查询</strong> 的 <code>attr.type</code> 仍是 <code>command</code>，真正类型要看 <code>attr.command.find</code>。parselog（V3）会把整条 <code>command</code> 对象保留在 JSON 输出里，便于平台检索。</div></div>
-<h4>文本慢日志（3.0～4.2）长什么样</h4>
-<pre><code class="language-log">2024-03-26T10:11:46.240+0800 I COMMAND  [conn652482] command bkrepo.node_247 command: find {
-  find: &quot;node_247&quot;, filter: { ... }, planSummary: IXSCAN { _id: 1 }, ... 46719ms
-}</code></pre>
-<table class="tbl"><thead><tr><th>片段</th><th>含义</th></tr></thead><tbody>
-<tr><td><code>I COMMAND</code></td><td>组件 = COMMAND（①）</td></tr>
-<tr><td><code>command bkrepo.node_247</code></td><td>命名空间 <code>db.collection</code></td></tr>
-<tr><td><code>command: find { find: &quot;node_247&quot;, ... }</code></td><td>③ 真实指令是 <strong>find</strong>；<code>find:</code> 后重复集合名是协议字段，属正常</td></tr>
-</tbody></table>
-<p>更早版本还可能见到 <strong><code>I QUERY ... query:</code></strong>（读）、<strong><code>I WRITE ... insert/update:</code></strong>（写），与 COMMAND 行并存；bk-dbmon 的 <strong>V2 解析器</strong> 从行尾向前解析，把 <code>find</code>/<code>delete</code> 等写入归一化字段 <code>type</code>（见 <code>mongologparser/v2.go</code>）。</p>
-<p><strong>写操作文本示例</strong>：</p>
-<pre><code class="language-log">I WRITE [conn191216] insert game.actor_data query: { _id: ObjectId(&#x27;...&#x27;) } ninserted:1 ... 1318ms
-I COMMAND [conn190722] command game.$cmd command: delete { delete: &quot;battle_data_restore&quot;, deletes: [ ... ] } ... 367ms</code></pre>
-<h4><code>getMore</code> 与 <code>aggregate</code> 的关系</h4>
-<p>聚合、大结果集 <code>find</code> 会拆成多条日志：</p>
-<ol>
-  <li>首包：<code>command.aggregate</code> 或 <code>command.find</code> + 创建 <code>cursorid</code></li>
-  <li>后续包：<code>type: &quot;command&quot;</code> + <code>command.getMore</code>；慢聚合常在 <strong><code>originatingCommand</code></strong> 里保留原始 <code>aggregate</code> 管道</li>
-</ol>
-<p>排障 <strong>聚合慢</strong> 时，若只搜 <code>aggregate</code> 漏掉 <code>getMore</code>，会低估问题；应连同 <code>originatingCommand.aggregate</code> 一并检索。</p>
-<h4>版本差异（运维采集时注意）</h4>
-<table class="tbl"><thead><tr><th>版本段</th><th>组件划分</th><th><code>type</code> 字段</th><th>建议检索方式</th><th></th><th></th><th></th></tr></thead><tbody>
-<tr><td><strong>2.4</strong></td><td><code>getmore</code> 独立行较多</td><td>无统一 JSON</td><td>搜 <code>getmore</code> / <code>query:</code></td><td></td><td></td><td></td></tr>
-<tr><td><strong>3.0～4.2</strong></td><td><code>QUERY</code> / <code>WRITE</code> / <code>COMMAND</code> 并存</td><td>文本行内 <code>command: &lt;op&gt;</code></td><td>正则 `command: (find</td><td>aggregate</td><td>update</td><td>delete)`</td></tr>
-<tr><td><strong>4.4+</strong></td><td>慢查询多在 <code>c:COMMAND</code></td><td>JSON <code>attr.type</code> + <code>attr.command</code></td><td>JSON 路径 <code>command.find</code>、<code>command.aggregate</code>；勿只过滤 <code>type=query</code></td><td></td><td></td><td></td></tr>
-</tbody></table>
-<h4>与 bk-dbmon parselog 的对应</h4>
-<table class="tbl"><thead><tr><th>解析器</th><th>如何抽出「真实指令」</th></tr></thead><tbody>
-<tr><td><strong>V2</strong>（3.0～4.2 文本）</td><td>从 <code>command: find</code> 解析出 <code>type=find</code>，<code>ns=db.coll</code></td></tr>
-<tr><td><strong>V3</strong>（4.4+ JSON）</td><td>直接读 <code>attr.type</code>；复杂结构在 <code>attr.command</code>（<code>getMore</code> 时查 <code>originatingCommand</code>）</td></tr>
-</tbody></table>
-<p>平台做慢查询统计时，应以 <strong>③ <code>command</code> 对象首键</strong>（或 <code>originatingCommand</code>）作为「SQL 类型」维度，<code>attr.type</code> 仅作辅助。</p>
-<h4>排障时怎么用</h4>
-<ol>
-  <li>先确认是慢查询行：<code>Slow query</code> / <code>id:51803</code> / <code>durationMillis</code> 超阈值。</li>
-  <li>用 <strong>③</strong> 判断是读还是写：<code>find</code>/<code>aggregate</code> → 索引与 <a href="#98-慢日志中的-collscan全表扫描">§9.8 COLLSCAN</a>；<code>update</code>/<code>delete</code> → 锁、<code>writeConflicts</code>、批量大小。</li>
-  <li>看到 <strong><code>type: &quot;command&quot;</code></strong> 不要跳过，展开 <code>command</code> 或文本里 <code>command:</code> 后的第一个动词。</li>
-  <li>分片集群：同一逻辑查询在 <strong>mongos</strong> 与 <strong>shard</strong> 上各打一条，需结合 <code>nShards</code>、<code>mongos</code> 字段区分。</li>
-</ol>
-</section>
-<section class="section" id="96-审计日志与-oplog">
-  <h2><span class="ix">9.6</span>审计日志与 oplog</h2>
-<div class="callout info"><div class="ico">💡</div><div class="body">📌 <strong>蓝鲸 DBM 现网为 MongoDB Community Edition（社区版）</strong> - <code>**auditLog</code> 仅 MongoDB Enterprise 提供<strong>，社区版 </strong>不支持** 在 <code>mongod.conf</code> 中配置 <code>auditLog.</code>*，也不会生成独立的审计日志文件。 - 若在社区版介质上写入 <code>auditLog</code> 段，启动可能 <strong>直接报错</strong> 或被忽略（视版本与打包方式而定）；排障与合规需求 <strong>不要</strong> 按 Enterprise 文档去配审计日志。 - 社区版可用的「谁做了什么」线索主要来自：<strong>认证相关 server log</strong>（如连接、auth 失败）、<strong>慢查询 / Profiler</strong>、<code>currentOp</code>、以及平台侧 <strong>工单 / Job / bk-dbmon</strong> 操作记录——精度与 Enterprise 审计不可等同，不能满足等保式「全量 DML 审计」时需在 <strong>应用层或旁路</strong> 另行设计。</div></div>
-<table class="tbl"><thead><tr><th>类型</th><th>社区版</th><th>Enterprise</th><th>说明</th></tr></thead><tbody>
-<tr><td><strong>auditLog</strong></td><td>❌ 不可用</td><td>✅ 2.6+，<code>auditLog.destination</code> 等</td><td>独立文件或 syslog，<strong>不写入</strong> <code>mongo.log</code></td></tr>
-<tr><td><strong>oplog</strong></td><td>✅</td><td>✅</td><td>副本集复制日志（<strong>≈ MySQL binlog</strong>）；<code>local.oplog.rs</code>，供备份 / PITR，<strong>不是</strong>安全审计日志</td></tr>
-</tbody></table>
-<p><strong>oplog</strong> 配置仍按副本集常规处理（<code>oplogSizeMB</code>、<code>replSet</code> 等），与是否 Enterprise 无关。</p>
-</section>
-<section class="section" id="97-日志轮转与磁盘">
-  <h2><span class="ix">9.7</span>日志轮转与磁盘</h2>
-<table class="tbl"><thead><tr><th>方式</th><th>适用版本</th><th>做法</th></tr></thead><tbody>
-<tr><td><strong>MongoDB 内置</strong></td><td>3.0+ YAML</td><td><code>systemLog.logRotate: rename</code> + <code>db.adminCommand({ logRotate: 1 })</code> 或 SIGUSR1（见官方文档）</td></tr>
-<tr><td><strong>OS logrotate</strong></td><td>全版本</td><td>对 <code>mongo.log</code> 做 copytruncate / rename 后需 <strong>reopen</strong> 或发信号，避免 mongod 仍写已移走的 inode</td></tr>
-<tr><td><strong>logAppend</strong></td><td>全版本</td><td>DBM 默认 <code>true</code>，避免重启覆盖历史</td></tr>
-</tbody></table>
-<p>磁盘满时 mongod 可能 <strong>拒绝启动或变只读</strong>；监控除数据盘外应包含 <code>mongolog</code> 分区。</p>
-</section>
-<section class="section" id="98-慢日志中的-collscan全表扫描">
-  <h2><span class="ix">9.8</span>慢日志中的 COLLSCAN（全表扫描）</h2>
-<p><strong>COLLSCAN</strong>（collection scan）表示查询计划 <strong>未有效使用索引</strong>，需要扫描集合中大量文档才能返回结果。在慢查询日志、Profiler 与 <code>explain(&quot;executionStats&quot;)</code> 中都会出现；是线上性能问题里 <strong>最高频</strong> 的信号之一。</p>
-<h3>9.8.1 在日志里怎么认</h3>
-<table class="tbl"><thead><tr><th>来源</th><th>典型字段</th><th>说明</th></tr></thead><tbody>
-<tr><td><strong>3.0～4.2 文本慢日志</strong></td><td><code>planSummary: COLLSCAN</code></td><td>常与 <code>docsExamined</code>、<code>durationMillis</code> 同现</td></tr>
-<tr><td><strong>4.4+ JSON 慢日志</strong>（<code>id:51803</code>）</td><td><code>attr.planSummary</code>、<code>attr.docsExamined</code>、<code>attr.durationMillis</code></td><td>parselog 归一化后字段名可能为 <code>PlanSummary</code> 等，以实际 JSON 为准</td></tr>
-<tr><td><strong>Profiler</strong></td><td><code>system.profile.planSummary</code></td><td>与 server log 可交叉核对</td></tr>
-<tr><td><strong>explain</strong></td><td><code>executionStats.executionStages.stage: &quot;COLLSCAN&quot;</code></td><td>以日志为线索，<strong>最终以 explain 为准</strong></td></tr>
-</tbody></table>
-<p><strong>文本慢日志示例</strong>（案例 #09 · cmdb）：</p>
-<pre><code class="language-log">find { bk_agent_id: &quot;02000000000c42a1ab9f3a169...&quot; }
-planSummary: COLLSCAN  docsExamined:345209  1457ms</code></pre>
-<p><strong>JSON 慢日志示例</strong>（节选）：</p>
-<pre><code class="language-json">{&quot;msg&quot;:&quot;Slow query&quot;,&quot;attr&quot;:{&quot;ns&quot;:&quot;cmdb.cc_HostBase&quot;,&quot;planSummary&quot;:&quot;COLLSCAN&quot;,
- &quot;docsExamined&quot;:345209,&quot;nreturned&quot;:1,&quot;durationMillis&quot;:1457}}</code></pre>
-<h3>9.8.2 先看的三个数</h3>
-<table class="tbl"><thead><tr><th>指标</th><th>健康参考</th><th>含义</th></tr></thead><tbody>
-<tr><td><code>planSummary</code></td><td><code>IXSCAN { ... }</code> 等</td><td><code>COLLSCAN</code> = 当前计划全表扫</td></tr>
-<tr><td><code>docsExamined</code> vs <code>nreturned</code></td><td>接近 1:1 或略大</td><td>扫 34 万行只返回 1 行 → 典型索引未命中或选择性极差</td></tr>
-<tr><td><code>durationMillis</code></td><td>低于 <code>slowOpThresholdMs</code> 则不进慢日志</td><td>平台默认阈值常见 <strong>200ms</strong>（见 §9.2）</td></tr>
-</tbody></table>
-<p>mongos / 分片场景：explain 需看各 <code>shards.*</code> 子计划，单分片 COLLSCAN 也会导致整体变慢。</p>
-<h3>9.8.3 有索引仍出现 COLLSCAN 的常见原因</h3>
-<table class="tbl"><thead><tr><th>原因</th><th>日志 / 现象线索</th><th>处置</th></tr></thead><tbody>
-<tr><td><strong>缺索引</strong></td><td>新查询、新集合</td><td>按 ESR 规则建索引；见 <a href="10-indexes.html">第 10 章</a></td></tr>
-<tr><td><strong>partial index 条件未写入查询</strong></td><td>等值查询却 COLLSCAN；<code>getIndexes()</code> 有 <code>partialFilterExpression</code></td><td>查询中 <strong>显式带上</strong> partial 过滤条件（案例 #09）</td></tr>
-<tr><td><strong>查询形态无法用索引</strong></td><td><code>$or</code>、<code>$nin</code>、非前缀正则、<code>$where</code></td><td>改写法或建复合/多键索引</td></tr>
-<tr><td><strong>类型不一致</strong></td><td>字段存 number、查询传 string</td><td>统一 BSON 类型</td></tr>
-<tr><td><strong>planCache 陈旧</strong></td><td>explain 为 IXSCAN，监控/日志仍为 COLLSCAN</td><td><code>db.coll.getPlanCache().clear()</code>（案例 #11）</td></tr>
-<tr><td><strong>集合过小</strong></td><td>文档很少</td><td>优化器故意 COLLSCAN，可接受</td></tr>
-<tr><td><strong>分片 scatter-gather</strong></td><td>无 shard key 过滤</td><td>查询带分片键；见索引章分片小节</td></tr>
-</tbody></table>
-<h3>9.8.4 标准处置步骤</h3>
-<ol>
-  <li>从慢日志取出 <strong><code>ns</code></strong>、过滤条件、<strong><code>docsExamined</code> / <code>durationMillis</code></strong>。</li>
-  <li>在对应节点执行 <strong><code>db.collection.find(...).explain(&quot;executionStats&quot;)</code></strong>，确认 <code>winningPlan</code> 是否为 COLLSCAN。</li>
-  <li><strong>补索引或改查询</strong>；partial index 必须同步规范查询模板。</li>
-  <li>变更后对比慢日志：<code>planSummary</code> 应变为 <strong>IXSCAN</strong>（或 <code>FETCH</code> + <code>IXSCAN</code>），<code>docsExamined</code> 显著下降。</li>
-  <li>持续告警时查 <a href="12-cases.html">第 12 章</a> 案例 <strong>#09</strong>（partial index）、<strong>#11</strong>（planCache）；系统方法见 <a href="10-indexes.html">第 10 章 · 索引体检</a>。</li>
-</ol>
-<div class="callout info"><div class="ico">💡</div><div class="body">💡 <strong>与 IXSCAN 对比</strong>：<code>IXSCAN</code> 表示走 B-Tree 索引；理想慢日志里应看到 <code>IXSCAN { 字段: 1 }</code>，且 <code>docsExamined</code> 与 <code>nreturned</code> 数量级相当。</div></div>
-</section>
-<section class="section" id="99-排障速查常见日志关键字-处置建议">
-  <h2><span class="ix">9.9</span>排障速查：常见日志关键字 → 处置建议</h2>
-<table class="tbl"><thead><tr><th>关键字 / 模式</th><th>可能原因</th><th>建议动作</th></tr></thead><tbody>
-<tr><td><strong><code>COLLSCAN</code></strong> / <code>docsExamined</code> 极大</td><td>全表扫描、索引未命中</td><td>见 <a href="#98-慢日志中的-collscan全表扫描">§9.8</a>；<code>explain</code> + <a href="10-indexes.html">第 10 章</a></td></tr>
-<tr><td><code>IXSCAN</code> 但仍慢</td><td>索引选择性差、内存排序</td><td>看 <code>docsExamined</code> vs <code>nreturned</code>；查 <code>SORT</code> / <code>SORT_KEY_GENERATOR</code></td></tr>
-<tr><td><code>replSetStepDown</code> / <code>election</code></td><td>选主、stepDown</td><td>对照拓扑与 priority；见 <a href="02-cluster-topology.html">第 2 章</a></td></tr>
-<tr><td><code>Rollback</code> / <code>recovering</code></td><td>回滚、节点追赶</td><td>查 oplog 窗口、磁盘与网络；勿贸然 <code>rs.reconfig</code></td></tr>
-<tr><td><code>TooManyLogicalSessions</code></td><td>Session 表膨胀 / 错误 <code>clusterRole</code></td><td>见 <a href="12-cases.html">第 12 章</a> 案例 #05</td></tr>
-<tr><td><code>KeyNotFound</code> / <code>error 211</code></td><td>分片 config / 错误角色</td><td>见案例 #01、#04</td></tr>
-<tr><td><code>Slow query</code> / <code>durationMillis</code></td><td>慢查询</td><td>先看 <code>planSummary</code> 是否 COLLSCAN；再 <code>explain</code></td></tr>
-<tr><td><code>cannot open /dev/urandom</code></td><td>容器 / 内核权限</td><td>见案例 #02</td></tr>
-<tr><td><code>WT</code> / <code>wiredTiger</code></td><td>存储引擎内部错误</td><td>结合 <code>mongo.log</code> 上下文；数据目录排障勿与 <code>mongolog</code> 日志路径混淆</td></tr>
-</tbody></table>
-</section>
-<section class="section" id="910-版本差异对照总表速查">
-  <h2><span class="ix">9.10</span>版本差异对照总表（速查）</h2>
-<table class="tbl"><thead><tr><th>主题</th><th>2.4～3.0</th><th>3.2～3.6</th><th>4.0～4.2</th><th>4.4</th><th>5.0～6.0</th><th>7.0～8.0</th></tr></thead><tbody>
-<tr><td>配置格式</td><td>INI 为主</td><td>YAML</td><td>YAML</td><td>YAML</td><td>YAML</td><td>YAML</td></tr>
-<tr><td>JSON server log</td><td>❌</td><td>❌</td><td>❌</td><td>✅ <code>logFormat</code></td><td>✅ 常用</td><td>✅ 持续演进</td></tr>
-<tr><td><code>slowOpThresholdMs</code></td><td>部分版本</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-<tr><td>FTDC 诊断包</td><td>❌</td><td>3.6+</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr>
-<tr><td>事务相关日志行</td><td>—</td><td>—</td><td>✅ 增多</td><td>✅</td><td>✅</td><td>✅</td></tr>
-<tr><td>升级后采集回归</td><td>仅读史</td><td>仅读史</td><td>建议</td><td><strong>必须</strong></td><td><strong>必须</strong></td><td><strong>必须</strong></td></tr>
-</tbody></table>
-</section>
-<section class="section" id="911-官方文档入口">
-  <h2><span class="ix">9.11</span>官方文档入口</h2>
-<table class="tbl"><thead><tr><th>入口</th><th>链接</th></tr></thead><tbody>
-<tr><td>systemLog 配置</td><td><a href="https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options" target="_blank" rel="noopener">https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options</a></td></tr>
-<tr><td>日志消息参考</td><td><a href="https://www.mongodb.com/docs/manual/reference/log-messages/" target="_blank" rel="noopener">https://www.mongodb.com/docs/manual/reference/log-messages/</a></td></tr>
-<tr><td>Profiler / 慢查询</td><td><a href="https://www.mongodb.com/docs/manual/tutorial/manage-the-database-profiler/" target="_blank" rel="noopener">https://www.mongodb.com/docs/manual/tutorial/manage-the-database-profiler/</a></td></tr>
-<tr><td>日志轮转</td><td><a href="https://www.mongodb.com/docs/manual/tutorial/rotate-log-files/" target="_blank" rel="noopener">https://www.mongodb.com/docs/manual/tutorial/rotate-log-files/</a></td></tr>
-<tr><td>Release Notes（按版本查 Compatibility）</td><td><a href="https://www.mongodb.com/docs/manual/release-notes/" target="_blank" rel="noopener">https://www.mongodb.com/docs/manual/release-notes/</a></td></tr>
-</tbody></table>
-</section>
+  slowOpThresholdMs: 200   # 平台默认可配，见安装单据 / dbConfig</code></pre><h3>bk-dbmon · parselog：旧版文本日志 → 统一 JSON</h3><p>蓝鲸 <strong>bk-dbmon</strong> 内置 <code>logparser</code> 任务（集群配置段 <code>**parselog</code><strong>），在实例机上 </strong>tail<strong> 读取 <code>systemLog.path</code> 指向的 <code>**mongo.log</code></strong>，将各行解析为 <strong>统一结构的 JSON 行</strong> 写入同目录下的 <code>**jsonlog/</code><strong>，供日志平台 / 慢查询分析等下游采集。</strong>不修改** mongod 原始 <code>mongo.log</code>。</p><table class="tbl"><thead><tr><th>项</th><th>说明</th></tr></thead><tbody><tr><td>默认开关</td><td><code>parselog.enable = true</code>（<code>cluster-config</code> 默认项）</td></tr><tr><td>源文件</td><td>与 mongod/mongos 配置一致，如 <code>{BackupDir}/mongolog/{port}/mongo.log</code></td></tr><tr><td>输出目录</td><td><code>**{mongo.log 所在目录}/jsonlog/</code>**</td></tr><tr><td>输出文件</td><td><code>jsonlog/mongo.log.{YYYYMMDD-HHMM}</code>，约 <strong>10 分钟</strong> 切分，保留约 <strong>4 小时</strong></td></tr><tr><td>断点续读</td><td><code>jsonlog/.seek</code> 记录偏移与 inode，重启后接着读</td></tr><tr><td>限流</td><td><code>parselog.max-record-per-second</code> 默认 <strong>10000</strong> 行/秒</td></tr></tbody></table><p><strong>按 MongoDB 日志形态自动选解析器</strong>（<code>dbmon/pkg/mongologparser</code>，与 server 大版本对应关系如下）：</p><table class="tbl"><thead><tr><th>解析器</th><th>适用 server 日志形态</th><th>行首特征</th><th>parselog 行为</th></tr></thead><tbody><tr><td><strong>V1</strong></td><td>2.4 时代纯文本</td><td>非 <code>{</code>、非 <code>20xx-</code> 时间戳</td><td>解析时间、组件、慢查询等，<strong>输出统一 JSON</strong></td></tr><tr><td><strong>V2</strong></td><td>3.0～4.2 纯文本</td><td>以 <code>20xx-</code> 开头的时间戳行</td><td>同上，兼容 3.x/4.0～4.2 <strong>未开 <code>logFormat: json</code></strong> 的集群</td></tr><tr><td><strong>V3</strong></td><td>4.4+ 原生 JSON 行</td><td>以 <code>{</code> 开头</td><td>解码后归一化为同一 <code>**MongoLogMsg</code>** 结构再写出（含慢查询 <code>id:51803</code> 等字段整理）</td></tr></tbody></table><p>因此：<strong>4.4 之前仍是纯文本日志</strong>，只要开启 parselog，下游仍可只消费 <code>**jsonlog/</code> 里的 JSON<strong>，无需为每个大版本写一套正则。4.4+ 若已在 mongod 侧配置 <code>systemLog.logFormat: json</code>，parselog 会做 </strong>二次归一化**（字段拉平、元数据注入），与旧版文本路径产出格式一致。</p><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠️ <strong>注意</strong></p><ul><li>parselog <strong>占用 CPU</strong>（按行解析）；异常流量或 <code>profilingLevel=2</code> 导致日志暴增时，可临时关闭或调低 <code>max-record-per-second</code>。</li><li><strong><code>jsonlog/</code></strong> 是 parselog 解析产物，与 <strong>oplog</strong> 无关；原始排障仍以 <strong><code>mongo.log</code></strong> 为准。</li><li>输出文件仅保留数小时，<strong>不能</strong>当作长期归档；长期留存依赖平台侧采集与存储策略。</li></ul></div></div><p>关闭示例（见 <a href="06-bk-dbmon.html">第 6 章</a>）：</p><pre><code class="lang-bash">./bk-dbmon config set --port all -s parselog -k enable -V false</code></pre><p>本地调试（读文件并写 jsonlog，见 <code>bk-dbmon debug parselog</code>）：</p><pre><code class="lang-bash">./bk-dbmon debug parselog --help</code></pre><p>入库后的日志可在 DBM <strong>mongo-log 性能视图</strong> 中检索，见 <a href="13-performance-views.html">第 13 章</a>。排障仍建议保留 <strong>工单 Job 日志 + server log + DBMon 指标</strong> 三件套（见 <a href="15-appendix.html">第 15 章附录</a>）。</p></section><section class="section" id="9-3-配置形态-ini-2-x～3-0-vs-yaml-3-0+"><h2><span class="ix">9.3</span>配置形态：INI（2.x～3.0） vs YAML（3.0+）</h2><table class="tbl"><thead><tr><th>维度</th><th>2.4～3.0（EOL）</th><th>3.2+（YAML，DBM 现网主流）</th></tr></thead><tbody><tr><td>配置文件</td><td><code>--config</code> 指向 <strong>INI/旧式 key=value</strong></td><td><code>--config</code> 指向 <strong>YAML</strong></td></tr><tr><td>日志路径键</td><td><code>logpath=</code>、<code>logappend=true</code></td><td><code>systemLog.path</code>、<code>systemLog.logAppend</code></td></tr><tr><td>慢查询阈值</td><td><code>slowms</code>（INI）或 <code>operationProfiling.slowOpThresholdMs</code></td><td>以 <code>operationProfiling.slowOpThresholdMs</code> 为主</td></tr><tr><td>组件分级</td><td>主要靠 <code>-v</code> / <code>--verbose</code></td><td><code>systemLog.component.*.verbosity</code> + <code>setParameter</code></td></tr></tbody></table><p>DBM 仓库中 INI 模板（仅 3.0 以下介质仍可能用到）：</p><pre><code class="lang-ini">logpath={{logpath}}
+logappend=true</code></pre><p>3.0+ 结构体字段见 <code>dbm-services/mongodb/db-tools/dbactuator/pkg/common/mongod_conf.go</code>（<code>systemLog</code>、<code>operationProfiling</code>）。</p></section><section class="section" id="9-4-server-log-按版本对比"><h2><span class="ix">9.4</span>Server Log：按版本对比</h2><p>下表聚焦 <strong>运维最常碰到的差异</strong>；EOL 版本仅作迁移读史。细节以 <a href="https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options">MongoDB systemLog</a> 与各版本 Release Notes 为准。</p><table class="tbl"><thead><tr><th>版本段</th><th>配置 / 格式</th><th>内容与字段</th><th>轮转与 verbosity</th><th>备注</th></tr></thead><tbody><tr><td><strong>2.4～3.0</strong> 🔴</td><td>INI <code>logpath</code>；无 <code>logFormat</code></td><td>纯文本；组件信息较少</td><td><code>logRotate</code> 能力弱；多用 OS <code>logrotate</code></td><td>MMAPv1 时代；<strong>禁止新装</strong></td></tr><tr><td><strong>3.2～3.6</strong> 🔴</td><td>YAML <code>systemLog</code> 成熟；`destination: file</td><td>syslog`</td><td>文本；复制、选举、连接错误可读性提升</td><td>`logRotate: rename</td></tr><tr><td><strong>4.0～4.2</strong> 🔴</td><td>同上 + 事务/分片事务相关日志行增多</td><td>慢操作、选举、<strong>txn</strong> 相关关键字增多</td><td><code>systemLog.component</code> 粒度扩展</td><td>4.0 起多文档事务日志需结合 <code>mongod.log</code> + <code>currentOp</code></td></tr><tr><td><strong>4.4</strong> 🟡</td><td>引入 `**systemLog.logFormat: text</td><td>json`**</td><td>JSON 行便于 ELK / Loki；<code>attr</code> 结构化字段</td><td>组件 verbosity 与 <strong>慢查询日志字段</strong>增强（如 plan 信息更全）</td></tr><tr><td><strong>5.0</strong> 🟡</td><td><code>logFormat</code>、Versioned API 并存</td><td>Time Series、resharding 相关新日志类型</td><td>弃用项见 5.0 Compatibility</td><td>与 <a href="07-versions.html">第 7 章</a> FCV 升级同步检查</td></tr><tr><td><strong>6.0</strong> 🟢</td><td>JSON 日志在可观测性场景更常见</td><td>查询计划器变更可能导致 <strong>慢日志形态变化</strong></td><td>部分 <code>setParameter</code> 日志级别调整</td><td>升级后对比升级前后同一条 SQL 的慢日志</td></tr><tr><td><strong>7.0～8.0</strong> 🟢🟣</td><td>Backward Incompatible 可能涉及日志字段</td><td>监控指标与日志字段增减见 Release Notes</td><td>Prometheus / Grafana 采集规则需回归</td><td>8.0 Queryable Encryption 等安全相关日志单独核对</td></tr></tbody></table><h3>4.4+ JSON 日志示例（节选）</h3><pre><code class="lang-json">{"t":{"$date":"2025-05-19T08:00:01.123+00:00"},"s":"I","c":"COMMAND","id":51803,
+ "ctx":"conn42","msg":"Slow query","attr":{"type":"command","ns":"game.users",
+ "durationMillis":312,"planSummary":"IXSCAN { _id: 1 }"}}</code></pre><p>采集侧建议：按 <strong>JSON 解析</strong> <code>msg</code> / <code>attr.durationMillis</code> / <code>attr.ns</code>，勿再依赖 3.x 时代的固定列宽文本正则。</p></section><section class="section" id="9-5-慢查询与-profiler-按版本对比"><h2><span class="ix">9.5</span>慢查询与 Profiler：按版本对比</h2><table class="tbl"><thead><tr><th>能力</th><th>2.4～3.6</th><th>4.0+</th><th>5.0+</th><th>说明</th></tr></thead><tbody><tr><td><strong>阈值配置</strong></td><td><code>slowms</code>（INI）或 <code>slowOpThresholdMs</code></td><td>同左</td><td>同左</td><td>DBM 安装常见 <strong>200ms</strong></td></tr><tr><td><strong>Profiler 级别</strong></td><td>`db.setProfilingLevel(0</td><td>1</td><td>2)`</td><td>同左</td></tr><tr><td><strong>落库位置</strong></td><td><code>system.profile</code>（固定大小 capped）</td><td>同左</td><td>同左</td><td>与 server log 中 Slow query <strong>可能重复</strong></td></tr><tr><td><strong>分片 / mongos</strong></td><td>mongos 上慢查询行为与 mongod 不同</td><td>4.2+ 分片事务慢日志更复杂</td><td>以当前版本 manual 为准</td><td>案例见 <a href="12-cases.html">第 12 章</a> 慢查询条目</td></tr><tr><td><strong>索引隐藏</strong></td><td>无</td><td>4.4+ <code>hiddenIndex</code> 影响 plan</td><td>6.0+ 计划器变更</td><td>慢日志里关注 <code>planSummary</code> 是否为 <strong>COLLSCAN</strong>，见 <a href="#98-慢日志中的-collscan全表扫描">§9.8</a></td></tr></tbody></table><p><strong>推荐生产组合</strong>（DBM 场景）：</p><ol><li><code>operationProfiling.slowOpThresholdMs</code> 与业务 SLA 对齐（100～500ms 常见）。</li><li><strong>不要</strong>长期 <code>profilingLevel=2</code>。</li><li>平台 <strong>parselog + 慢查询分析</strong> 与 <code>db.currentOp()</code> / <code>explain</code> 交叉验证。</li><li>大版本升级后抽 10 条历史慢 SQL <strong>对比升级前后日志字段</strong>是否仍能被正则 / JSON 路径命中。</li></ol><h3>9.5.1 日志里的 <code>command</code> 与 <code>find</code> / <code>update</code> / <code>aggregate</code> 是什么关系</h3><p>慢日志里经常出现 <strong><code>COMMAND</code> 组件</strong>、字段 <strong><code>type: "command"</code></strong>，以及正文里的 <strong><code>command: find { ... }</code></strong>——三者层级不同，混用会导致「明明在查表，日志却全是 command」的误解。</p><h4>三层结构（由外到内）</h4><table class="tbl"><thead><tr><th>层级</th><th>字段 / 位置</th><th>含义</th><th>示例</th></tr></thead><tbody><tr><td><strong>① 日志组件</strong></td><td>文本行 <code>I COMMAND</code>；JSON <code>"c":"COMMAND"</code></td><td>本条日志由 <strong>COMMAND 子系统</strong>打出；慢查询（<code>id:51803</code>）几乎都归此类</td><td>不等于「业务指令名叫 command」</td></tr><tr><td><strong>② 操作类型</strong></td><td>文本 <code>command: find</code> 前的类别；JSON <code>attr.type</code></td><td>MongoDB 对本次操作的 <strong>粗分类</strong></td><td><code>query</code>、<code>command</code>、<code>update</code>、<code>remove</code>、<code>insert</code>、<code>getmore</code> 等</td></tr><tr><td><strong>③ 真实指令</strong></td><td>文本 <code>command: find { find:"coll", ... }</code>；JSON <code>attr.command</code> 对象 <strong>第一个业务键</strong></td><td>应用实际下发的命令</td><td><code>find</code>、<code>aggregate</code>、<code>update</code>、<code>delete</code>、<code>getMore</code>、<code>count</code> …</td></tr></tbody></table><p><strong>记忆口诀</strong>：<code>c=COMMAND</code> 是「柜台」；<code>type</code> 是「业务大类」；<code>command.find / command.aggregate</code> 才是「具体办了什么事」。</p><h4>业务操作 ↔ 日志对照（4.4+ JSON 慢日志为主）</h4><table class="tbl"><thead><tr><th>应用层操作</th><th>常见 <code>attr.type</code></th><th>看 <code>attr.command</code> 里的键</th><th>是否常有 <code>planSummary</code></th></tr></thead><tbody><tr><td><code>find()</code></td><td><code>query</code> <strong>或</strong> <code>command</code></td><td><code>find</code></td><td>✅ 读路径</td></tr><tr><td><code>aggregate()</code></td><td>多为 <code>command</code></td><td><code>aggregate</code>（管道在 <code>pipeline</code>）</td><td>✅ 可能有 <code>hasSortStage</code></td></tr><tr><td><code>update()</code> / <code>updateMany()</code></td><td><code>update</code></td><td><code>update</code> + <code>q</code> / <code>u</code></td><td>一般无 COLLSCAN 指标时仍看 <code>docsExamined</code></td></tr><tr><td><code>delete()</code> / <code>remove()</code></td><td><code>remove</code></td><td><code>delete</code> + <code>deletes</code></td><td>写路径</td></tr><tr><td><code>insert()</code> / <code>insertMany()</code></td><td><code>insert</code></td><td><code>insert</code> + <code>documents</code></td><td>写路径</td></tr><tr><td>游标拉取下一批</td><td><code>command</code></td><td><code>getMore</code>；聚合慢时常带 <strong><code>originatingCommand.aggregate</code></strong></td><td>延续首包计划</td></tr><tr><td><code>createIndex</code> 等管理命令</td><td><code>command</code></td><td><code>createIndexes</code>、<code>dropIndexes</code> 等</td><td>与查询优化相关</td></tr></tbody></table><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠️ <strong><code>type: "command"</code> 不等于「非 find/update」</strong> 4.4+ 很多 <strong><code>find</code> 慢查询</strong> 的 <code>attr.type</code> 仍是 <code>command</code>，真正类型要看 <code>attr.command.find</code>。parselog（V3）会把整条 <code>command</code> 对象保留在 JSON 输出里，便于平台检索。</p></div></div><h4>文本慢日志（3.0～4.2）长什么样</h4><pre><code class="lang-log">2024-03-26T10:11:46.240+0800 I COMMAND  [conn652482] command bkrepo.node_247 command: find {
+  find: "node_247", filter: { ... }, planSummary: IXSCAN { _id: 1 }, ... 46719ms
+}</code></pre><table class="tbl"><thead><tr><th>片段</th><th>含义</th></tr></thead><tbody><tr><td><code>I COMMAND</code></td><td>组件 = COMMAND（①）</td></tr><tr><td><code>command bkrepo.node_247</code></td><td>命名空间 <code>db.collection</code></td></tr><tr><td><code>command: find { find: "node_247", ... }</code></td><td>③ 真实指令是 <strong>find</strong>；<code>find:</code> 后重复集合名是协议字段，属正常</td></tr></tbody></table><p>更早版本还可能见到 <strong><code>I QUERY ... query:</code></strong>（读）、<strong><code>I WRITE ... insert/update:</code></strong>（写），与 COMMAND 行并存；bk-dbmon 的 <strong>V2 解析器</strong> 从行尾向前解析，把 <code>find</code>/<code>delete</code> 等写入归一化字段 <code>type</code>（见 <code>mongologparser/v2.go</code>）。</p><p><strong>写操作文本示例</strong>：</p><pre><code class="lang-log">I WRITE [conn191216] insert game.actor_data query: { _id: ObjectId('...') } ninserted:1 ... 1318ms
+I COMMAND [conn190722] command game.$cmd command: delete { delete: "battle_data_restore", deletes: [ ... ] } ... 367ms</code></pre><h4><code>getMore</code> 与 <code>aggregate</code> 的关系</h4><p>聚合、大结果集 <code>find</code> 会拆成多条日志：</p><ol><li>首包：<code>command.aggregate</code> 或 <code>command.find</code> + 创建 <code>cursorid</code></li><li>后续包：<code>type: "command"</code> + <code>command.getMore</code>；慢聚合常在 <strong><code>originatingCommand</code></strong> 里保留原始 <code>aggregate</code> 管道</li></ol><p>排障 <strong>聚合慢</strong> 时，若只搜 <code>aggregate</code> 漏掉 <code>getMore</code>，会低估问题；应连同 <code>originatingCommand.aggregate</code> 一并检索。</p><h4>版本差异（运维采集时注意）</h4><table class="tbl"><thead><tr><th>版本段</th><th>组件划分</th><th><code>type</code> 字段</th><th>建议检索方式</th></tr></thead><tbody><tr><td><strong>2.4</strong></td><td><code>getmore</code> 独立行较多</td><td>无统一 JSON</td><td>搜 <code>getmore</code> / <code>query:</code></td></tr><tr><td><strong>3.0～4.2</strong></td><td><code>QUERY</code> / <code>WRITE</code> / <code>COMMAND</code> 并存</td><td>文本行内 <code>command: &lt;op&gt;</code></td><td>正则 `command: (find</td></tr><tr><td><strong>4.4+</strong></td><td>慢查询多在 <code>c:COMMAND</code></td><td>JSON <code>attr.type</code> + <code>attr.command</code></td><td>JSON 路径 <code>command.find</code>、<code>command.aggregate</code>；勿只过滤 <code>type=query</code></td></tr></tbody></table><h4>与 bk-dbmon parselog 的对应</h4><table class="tbl"><thead><tr><th>解析器</th><th>如何抽出「真实指令」</th></tr></thead><tbody><tr><td><strong>V2</strong>（3.0～4.2 文本）</td><td>从 <code>command: find</code> 解析出 <code>type=find</code>，<code>ns=db.coll</code></td></tr><tr><td><strong>V3</strong>（4.4+ JSON）</td><td>直接读 <code>attr.type</code>；复杂结构在 <code>attr.command</code>（<code>getMore</code> 时查 <code>originatingCommand</code>）</td></tr></tbody></table><p>平台做慢查询统计时，应以 <strong>③ <code>command</code> 对象首键</strong>（或 <code>originatingCommand</code>）作为「SQL 类型」维度，<code>attr.type</code> 仅作辅助。</p><h4>排障时怎么用</h4><ol><li>先确认是慢查询行：<code>Slow query</code> / <code>id:51803</code> / <code>durationMillis</code> 超阈值。</li><li>用 <strong>③</strong> 判断是读还是写：<code>find</code>/<code>aggregate</code> → 索引与 <a href="#98-慢日志中的-collscan全表扫描">§9.8 COLLSCAN</a>；<code>update</code>/<code>delete</code> → 锁、<code>writeConflicts</code>、批量大小。</li><li>看到 <strong><code>type: "command"</code></strong> 不要跳过，展开 <code>command</code> 或文本里 <code>command:</code> 后的第一个动词。</li><li>分片集群：同一逻辑查询在 <strong>mongos</strong> 与 <strong>shard</strong> 上各打一条，需结合 <code>nShards</code>、<code>mongos</code> 字段区分。</li></ol></section><section class="section" id="9-6-oplog-与-server-log-的关系"><h2><span class="ix">9.6</span>oplog 与 server log 的关系</h2><p><strong>oplog</strong> 是副本集复制日志（<strong>≈ MySQL binlog</strong>），存放在 <code>local.oplog.rs</code> capped 集合中，供从节点复制、增量备份与 PITR 使用。</p><p>它不写入 <code>mongo.log</code>，也不由 <code>systemLog.path</code> 控制；排查复制延迟、回滚风险或增量恢复窗口时，应关注 <code>rs.printReplicationInfo()</code>、<code>rs.printSecondaryReplicationInfo()</code>、oplog 窗口与节点复制状态。</p><p><strong>oplog</strong> 配置仍按副本集常规处理（<code>oplogSizeMB</code>、<code>replSet</code> 等），与 server log、slow log、Profiler 的配置互不替代。</p></section><section class="section" id="9-7-日志轮转与磁盘"><h2><span class="ix">9.7</span>日志轮转与磁盘</h2><table class="tbl"><thead><tr><th>方式</th><th>适用版本</th><th>做法</th></tr></thead><tbody><tr><td><strong>MongoDB 内置</strong></td><td>3.0+ YAML</td><td><code>systemLog.logRotate: rename</code> + <code>db.adminCommand({ logRotate: 1 })</code> 或 SIGUSR1（见官方文档）</td></tr><tr><td><strong>OS logrotate</strong></td><td>全版本</td><td>对 <code>mongo.log</code> 做 copytruncate / rename 后需 <strong>reopen</strong> 或发信号，避免 mongod 仍写已移走的 inode</td></tr><tr><td><strong>logAppend</strong></td><td>全版本</td><td>DBM 默认 <code>true</code>，避免重启覆盖历史</td></tr></tbody></table><p>磁盘满时 mongod 可能 <strong>拒绝启动或变只读</strong>；监控除数据盘外应包含 <code>mongolog</code> 分区。</p></section><section class="section" id="9-8-慢日志中的-collscan-全表扫描"><h2><span class="ix">9.8</span>慢日志中的 COLLSCAN（全表扫描）</h2><p><strong>COLLSCAN</strong>（collection scan）表示查询计划 <strong>未有效使用索引</strong>，需要扫描集合中大量文档才能返回结果。在慢查询日志、Profiler 与 <code>explain("executionStats")</code> 中都会出现；是线上性能问题里 <strong>最高频</strong> 的信号之一。</p><h3>9.8.1 在日志里怎么认</h3><table class="tbl"><thead><tr><th>来源</th><th>典型字段</th><th>说明</th></tr></thead><tbody><tr><td><strong>3.0～4.2 文本慢日志</strong></td><td><code>planSummary: COLLSCAN</code></td><td>常与 <code>docsExamined</code>、<code>durationMillis</code> 同现</td></tr><tr><td><strong>4.4+ JSON 慢日志</strong>（<code>id:51803</code>）</td><td><code>attr.planSummary</code>、<code>attr.docsExamined</code>、<code>attr.durationMillis</code></td><td>parselog 归一化后字段名可能为 <code>PlanSummary</code> 等，以实际 JSON 为准</td></tr><tr><td><strong>Profiler</strong></td><td><code>system.profile.planSummary</code></td><td>与 server log 可交叉核对</td></tr><tr><td><strong>explain</strong></td><td><code>executionStats.executionStages.stage: "COLLSCAN"</code></td><td>以日志为线索，<strong>最终以 explain 为准</strong></td></tr></tbody></table><p><strong>文本慢日志示例</strong>（案例 #09 · cmdb）：</p><pre><code class="lang-log">find { bk_agent_id: "02000000000c42a1ab9f3a169..." }
+planSummary: COLLSCAN  docsExamined:345209  1457ms</code></pre><p><strong>JSON 慢日志示例</strong>（节选）：</p><pre><code class="lang-json">{"msg":"Slow query","attr":{"ns":"cmdb.cc_HostBase","planSummary":"COLLSCAN",
+ "docsExamined":345209,"nreturned":1,"durationMillis":1457}}</code></pre><h3>9.8.2 先看的三个数</h3><table class="tbl"><thead><tr><th>指标</th><th>健康参考</th><th>含义</th></tr></thead><tbody><tr><td><code>planSummary</code></td><td><code>IXSCAN { ... }</code> 等</td><td><code>COLLSCAN</code> = 当前计划全表扫</td></tr><tr><td><code>docsExamined</code> vs <code>nreturned</code></td><td>接近 1:1 或略大</td><td>扫 34 万行只返回 1 行 → 典型索引未命中或选择性极差</td></tr><tr><td><code>durationMillis</code></td><td>低于 <code>slowOpThresholdMs</code> 则不进慢日志</td><td>平台默认阈值常见 <strong>200ms</strong>（见 §9.2）</td></tr></tbody></table><p>mongos / 分片场景：explain 需看各 <code>shards.*</code> 子计划，单分片 COLLSCAN 也会导致整体变慢。</p><h3>9.8.3 有索引仍出现 COLLSCAN 的常见原因</h3><table class="tbl"><thead><tr><th>原因</th><th>日志 / 现象线索</th><th>处置</th></tr></thead><tbody><tr><td><strong>缺索引</strong></td><td>新查询、新集合</td><td>按 ESR 规则建索引；见 <a href="10-indexes.html">第 10 章</a></td></tr><tr><td><strong>partial index 条件未写入查询</strong></td><td>等值查询却 COLLSCAN；<code>getIndexes()</code> 有 <code>partialFilterExpression</code></td><td>查询中 <strong>显式带上</strong> partial 过滤条件（案例 #09）</td></tr><tr><td><strong>查询形态无法用索引</strong></td><td><code>$or</code>、<code>$nin</code>、非前缀正则、<code>$where</code></td><td>改写法或建复合/多键索引</td></tr><tr><td><strong>类型不一致</strong></td><td>字段存 number、查询传 string</td><td>统一 BSON 类型</td></tr><tr><td><strong>planCache 陈旧</strong></td><td>explain 为 IXSCAN，监控/日志仍为 COLLSCAN</td><td><code>db.coll.getPlanCache().clear()</code>（案例 #11）</td></tr><tr><td><strong>集合过小</strong></td><td>文档很少</td><td>优化器故意 COLLSCAN，可接受</td></tr><tr><td><strong>分片 scatter-gather</strong></td><td>无 shard key 过滤</td><td>查询带分片键；见索引章分片小节</td></tr></tbody></table><h3>9.8.4 标准处置步骤</h3><ol><li>从慢日志取出 <strong><code>ns</code></strong>、过滤条件、<strong><code>docsExamined</code> / <code>durationMillis</code></strong>。</li><li>在对应节点执行 <strong><code>db.collection.find(...).explain("executionStats")</code></strong>，确认 <code>winningPlan</code> 是否为 COLLSCAN。</li><li><strong>补索引或改查询</strong>；partial index 必须同步规范查询模板。</li><li>变更后对比慢日志：<code>planSummary</code> 应变为 <strong>IXSCAN</strong>（或 <code>FETCH</code> + <code>IXSCAN</code>），<code>docsExamined</code> 显著下降。</li><li>持续告警时查 <a href="12-cases.html">第 12 章</a> 案例 <strong>#09</strong>（partial index）、<strong>#11</strong>（planCache）；系统方法见 <a href="10-indexes.html">第 10 章 · 索引体检</a>。</li></ol><div class="callout tip"><div class="ico">✅</div><div class="body"><p>💡 <strong>与 IXSCAN 对比</strong>：<code>IXSCAN</code> 表示走 B-Tree 索引；理想慢日志里应看到 <code>IXSCAN { 字段: 1 }</code>，且 <code>docsExamined</code> 与 <code>nreturned</code> 数量级相当。</p></div></div></section><section class="section" id="9-9-排障速查-常见日志关键字-→-处置建议"><h2><span class="ix">9.9</span>排障速查：常见日志关键字 → 处置建议</h2><table class="tbl"><thead><tr><th>关键字 / 模式</th><th>可能原因</th><th>建议动作</th></tr></thead><tbody><tr><td><strong><code>COLLSCAN</code></strong> / <code>docsExamined</code> 极大</td><td>全表扫描、索引未命中</td><td>见 <a href="#98-慢日志中的-collscan全表扫描">§9.8</a>；<code>explain</code> + <a href="10-indexes.html">第 10 章</a></td></tr><tr><td><code>IXSCAN</code> 但仍慢</td><td>索引选择性差、内存排序</td><td>看 <code>docsExamined</code> vs <code>nreturned</code>；查 <code>SORT</code> / <code>SORT_KEY_GENERATOR</code></td></tr><tr><td><code>replSetStepDown</code> / <code>election</code></td><td>选主、stepDown</td><td>对照拓扑与 priority；见 <a href="02-cluster-topology.html">第 2 章</a></td></tr><tr><td><code>Rollback</code> / <code>recovering</code></td><td>回滚、节点追赶</td><td>查 oplog 窗口、磁盘与网络；勿贸然 <code>rs.reconfig</code></td></tr><tr><td><code>TooManyLogicalSessions</code></td><td>Session 表膨胀 / 错误 <code>clusterRole</code></td><td>见 <a href="12-cases.html">第 12 章</a> 案例 #05</td></tr><tr><td><code>KeyNotFound</code> / <code>error 211</code></td><td>分片 config / 错误角色</td><td>见案例 #01、#04</td></tr><tr><td><code>Slow query</code> / <code>durationMillis</code></td><td>慢查询</td><td>先看 <code>planSummary</code> 是否 COLLSCAN；再 <code>explain</code></td></tr><tr><td><code>cannot open /dev/urandom</code></td><td>容器 / 内核权限</td><td>见案例 #02</td></tr><tr><td><code>WT</code> / <code>wiredTiger</code></td><td>存储引擎内部错误</td><td>结合 <code>mongo.log</code> 上下文；数据目录排障勿与 <code>mongolog</code> 日志路径混淆</td></tr></tbody></table></section><section class="section" id="9-10-版本差异对照总表-速查"><h2><span class="ix">9.10</span>版本差异对照总表（速查）</h2><table class="tbl"><thead><tr><th>主题</th><th>2.4～3.0</th><th>3.2～3.6</th><th>4.0～4.2</th><th>4.4</th><th>5.0～6.0</th><th>7.0～8.0</th></tr></thead><tbody><tr><td>配置格式</td><td>INI 为主</td><td>YAML</td><td>YAML</td><td>YAML</td><td>YAML</td><td>YAML</td></tr><tr><td>JSON server log</td><td>❌</td><td>❌</td><td>❌</td><td>✅ <code>logFormat</code></td><td>✅ 常用</td><td>✅ 持续演进</td></tr><tr><td><code>slowOpThresholdMs</code></td><td>部分版本</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr><tr><td>FTDC 诊断包</td><td>❌</td><td>3.6+</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td></tr><tr><td>事务相关日志行</td><td>—</td><td>—</td><td>✅ 增多</td><td>✅</td><td>✅</td><td>✅</td></tr><tr><td>升级后采集回归</td><td>仅读史</td><td>仅读史</td><td>建议</td><td><strong>必须</strong></td><td><strong>必须</strong></td><td><strong>必须</strong></td></tr></tbody></table></section><section class="section" id="9-11-官方文档入口"><h2><span class="ix">9.11</span>官方文档入口</h2><table class="tbl"><thead><tr><th>入口</th><th>链接</th></tr></thead><tbody><tr><td>systemLog 配置</td><td><a href="https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options">https://www.mongodb.com/docs/manual/reference/configuration-options/#systemlog-options</a></td></tr><tr><td>日志消息参考</td><td><a href="https://www.mongodb.com/docs/manual/reference/log-messages/">https://www.mongodb.com/docs/manual/reference/log-messages/</a></td></tr><tr><td>Profiler / 慢查询</td><td><a href="https://www.mongodb.com/docs/manual/tutorial/manage-the-database-profiler/">https://www.mongodb.com/docs/manual/tutorial/manage-the-database-profiler/</a></td></tr><tr><td>日志轮转</td><td><a href="https://www.mongodb.com/docs/manual/tutorial/rotate-log-files/">https://www.mongodb.com/docs/manual/tutorial/rotate-log-files/</a></td></tr><tr><td>Release Notes（按版本查 Compatibility）</td><td><a href="https://www.mongodb.com/docs/manual/release-notes/">https://www.mongodb.com/docs/manual/release-notes/</a></td></tr></tbody></table></section><nav class="pager"><a href="08-mongo-tools.html"><span class="arrow">⬅</span><span><span class="lbl">PREV</span><span class="ttl">上一章 · 第 8 章 MongoDB 工具集</span></span></a><a class="next" href="10-indexes.html"><span><span class="lbl">NEXT</span><span class="ttl">下一章 · 第 10 章 索引设计与优化 ➡️</span></span><span class="arrow">➡</span></a></nav>
   </main>
 </div>
 <script src="../assets/app.js?v=20260520c"></script>

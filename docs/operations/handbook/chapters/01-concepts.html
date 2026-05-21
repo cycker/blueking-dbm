@@ -15,54 +15,7 @@
     <nav class="crumb"><a href="../index.html">🏠 首页</a><span class="sep">/</span><span>第 1 章</span><span class="sep">/</span><span style="color:#cbd5e1">第 1 章 · 导读与概念对照</span></nav>
     <h1 class="page-title">第 1 章 · 导读与概念对照</h1>
     <p class="page-lead"><strong>读者：</strong> MySQL/Redis 经验运维　<strong>耗时：</strong> 约 10 分钟　<strong>难度：</strong> ⭐ 入门</p>
-<p>本章面向具备 <strong>MySQL / Redis</strong> 运维背景的同学，先把 MongoDB 的核心概念「翻译」回你熟悉的世界，再列举 3 类容易踩坑的运维差异，避免迁移思维到 MongoDB 时跑偏。</p>
-<section class="section" id="11-读者画像与全文目标">
-  <h2><span class="ix">1.1</span>读者画像与全文目标</h2>
-<table class="tbl"><thead><tr><th>画像</th><th>推荐起点</th><th>路径</th></tr></thead><tbody>
-<tr><td>🆕 从未部署过 MongoDB</td><td>先看 <a href="03-first-deploy.html">第 3 章 · 首次部署</a></td><td>然后回头浏览工单全景</td></tr>
-<tr><td>🔍 需要查改数据</td><td>直达 <a href="05-mongosh.html">第 5 章 · mongosh 入门</a></td><td>含 SQL 对照表</td></tr>
-<tr><td>⬆️ 评估大版本差异</td><td>直达 <a href="07-versions.html">第 7 章 · 版本特性</a></td><td>看 EOL 警示与升级清单</td></tr>
-</tbody></table>
-</section>
-<section class="section" id="12-副本集replica-set-概念对照">
-  <h2><span class="ix">1.2</span>副本集（Replica Set）— 概念对照</h2>
-<p>类比来理解：</p>
-<ul>
-  <li><strong>像什么</strong>：MySQL *主从 / InnoDB Cluster 单写多读*、Redis *Sentinel 下一主多从* 的高可用思路。</li>
-  <li><strong>核心机制</strong>：基于 <code>Raft</code> 类协议的 <strong>选举</strong>；依赖 <strong>多数派（majority）</strong> 存活。</li>
-  <li><strong>读</strong>：默认常连 <strong>Primary</strong>；若使用 <strong>Secondary 读</strong>，需理解 <code>read concern</code> 与 lag 对一致性的影响。</li>
-</ul>
-<div class="callout info"><div class="ico">💡</div><div class="body">💡 <strong>提示</strong>：复制协议、选举语义随版本演进，跨大版本部署前请回看 <a href="07-versions.html">版本特性章节</a> 的「副本集协议」部分。</div></div>
-</section>
-<section class="section" id="13-分片集群sharded-cluster-概念对照">
-  <h2><span class="ix">1.3</span>分片集群（Sharded Cluster）— 概念对照</h2>
-<p>类比 MySQL <strong>分库分表 + 中间代理</strong>，或 Redis <strong>Cluster 多分片</strong> 的「横向扩展」思路。集群由 3 类角色组成：</p>
-<table class="tbl"><thead><tr><th>角色</th><th>作用</th><th>类比</th></tr></thead><tbody>
-<tr><td><code>mongos</code></td><td>接入与路由，对应用暴露查询入口</td><td>MySQL Proxy / Redis 集群代理</td></tr>
-<tr><td><code>config server</code></td><td>集群元数据与 chunk 路由信息</td><td>etcd / 元数据节点</td></tr>
-<tr><td><code>shard</code></td><td>数据分片，每个分片通常为 <strong>副本集</strong></td><td>MySQL 分片实例 / Redis 分片</td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">🔗 元数据处理代码：<code>dbm-ui/backend/db_meta/api/cluster/mongocluster/handler.py</code> 中 <code>MongoClusterHandler</code>。</div></div>
-</section>
-<section class="section" id="14-数据模型对照">
-  <h2><span class="ix">1.4</span>数据模型对照</h2>
-<table class="tbl"><thead><tr><th>MongoDB</th><th>可类比</th><th>说明</th></tr></thead><tbody>
-<tr><td><code>database</code></td><td>MySQL database</td><td>顶层命名空间</td></tr>
-<tr><td><code>collection</code></td><td>MySQL table</td><td>无固定 schema，文档结构可不同</td></tr>
-<tr><td><code>document</code></td><td>一行记录（row）</td><td>BSON / JSON，字段可嵌套</td></tr>
-<tr><td><code>namespace</code></td><td>—</td><td>形如 <code>db.collection</code></td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">✅ <strong>记忆要点</strong>：Redis 多为 KV / 数据结构服务；Mongo 为 <strong>文档库 + 丰富查询与索引</strong>，运维上更贴近「*库表 + 复制拓扑*」治理方式。</div></div>
-</section>
-<section class="section" id="15-与-mysql-redis-运维习惯的差异提醒-易踩">
-  <h2><span class="ix">1.5</span>与 MySQL / Redis 运维习惯的差异提醒 ⚠ 易踩</h2>
-<h3>💾 备份与回档</h3>
-<p>以 DBM 工单语义为准，<strong>不要</strong>默认等价于 MySQL <code>xtrabackup</code> 物理备份，或 Redis <code>RDB</code> / <code>AOF</code> 的同一套路径与文件布局。</p>
-<h3>🧱 分片集群变更</h3>
-<p>先弄清 <code>mongos / config / shard</code> 三类角色再执行扩缩容；<strong>避免</strong>在业务高峰盲目执行 balancer 相关操作（若平台暴露）。</p>
-<h3>🔐 权限模型</h3>
-<p>MongoDB 用户与角色模型与 MySQL <code>GRANT</code>、Redis <code>ACL</code> 不同；授权走 <code>MONGODB_AUTHORIZE_RULES</code> 等工单（详见第 4 章 §4.6）。</p>
-</section>
+<p>本章面向具备 <strong>MySQL / Redis</strong> 运维背景的同学，先把 MongoDB 的核心概念「翻译」回你熟悉的世界，再列举 3 类容易踩坑的运维差异，避免迁移思维到 MongoDB 时跑偏。</p><section class="section" id="1-1-读者画像与全文目标"><h2><span class="ix">1.1</span>读者画像与全文目标</h2><table class="tbl"><thead><tr><th>画像</th><th>推荐起点</th><th>路径</th></tr></thead><tbody><tr><td>🆕 从未部署过 MongoDB</td><td>先看 <a href="03-first-deploy.html">第 3 章 · 数据目录和配置文件</a>，了解节点本地形态</td><td>然后走 <a href="04-tickets.html">第 4 章工单</a> 发起部署</td></tr><tr><td>🔍 需要查改数据</td><td>直达 <a href="05-mongosh.html">第 5 章 · mongosh 入门</a></td><td>含 SQL 对照表</td></tr><tr><td>⬆️ 评估大版本差异</td><td>直达 <a href="07-versions.html">第 7 章 · 版本特性</a></td><td>看 EOL 警示与升级清单</td></tr></tbody></table></section><section class="section" id="1-2-副本集-replica-set-—-概念对照"><h2><span class="ix">1.2</span>副本集（Replica Set）— 概念对照</h2><p>类比来理解：</p><ul><li><strong>像什么</strong>：MySQL <em>主从 / InnoDB Cluster 单写多读</em>、Redis <em>Sentinel 下一主多从</em> 的高可用思路。</li><li><strong>核心机制</strong>：基于 <code>Raft</code> 类协议的 <strong>选举</strong>；依赖 <strong>多数派（majority）</strong> 存活。</li><li><strong>读</strong>：默认常连 <strong>Primary</strong>；若使用 <strong>Secondary 读</strong>，需理解 <code>read concern</code> 与 lag 对一致性的影响。</li></ul><div class="callout tip"><div class="ico">✅</div><div class="body"><p>💡 <strong>提示</strong>：复制协议、选举语义随版本演进，跨大版本部署前请回看 <a href="07-versions.html">版本特性章节</a> 的「副本集协议」部分。</p></div></div></section><section class="section" id="1-3-分片集群-sharded-cluster-—-概念对照"><h2><span class="ix">1.3</span>分片集群（Sharded Cluster）— 概念对照</h2><p>类比 MySQL <strong>分库分表 + 中间代理</strong>，或 Redis <strong>Cluster 多分片</strong> 的「横向扩展」思路。集群由 3 类角色组成：</p><table class="tbl"><thead><tr><th>角色</th><th>作用</th><th>类比</th></tr></thead><tbody><tr><td><code>mongos</code></td><td>接入与路由，对应用暴露查询入口</td><td>MySQL Proxy / Redis 集群代理</td></tr><tr><td><code>config server</code></td><td>集群元数据与 chunk 路由信息</td><td>etcd / 元数据节点</td></tr><tr><td><code>shard</code></td><td>数据分片，每个分片通常为 <strong>副本集</strong></td><td>MySQL 分片实例 / Redis 分片</td></tr></tbody></table></section><section class="section" id="1-4-数据模型对照"><h2><span class="ix">1.4</span>数据模型对照</h2><table class="tbl"><thead><tr><th>MongoDB</th><th>可类比</th><th>说明</th></tr></thead><tbody><tr><td><code>database</code></td><td>MySQL database</td><td>顶层命名空间</td></tr><tr><td><code>collection</code></td><td>MySQL table</td><td>无固定 schema，文档结构可不同</td></tr><tr><td><code>document</code></td><td>一行记录（row）</td><td>BSON / JSON，字段可嵌套</td></tr><tr><td><code>namespace</code></td><td>—</td><td>形如 <code>db.collection</code></td></tr></tbody></table><div class="callout tip"><div class="ico">✅</div><div class="body"><p>✅ <strong>记忆要点</strong>：Redis 多为 KV / 数据结构服务；Mongo 为 <strong>文档库 + 丰富查询与索引</strong>，运维上更贴近「<em>库表 + 复制拓扑</em>」治理方式。</p></div></div></section><section class="section" id="1-5-与-mysql-redis-运维习惯的差异提醒-⚠-易踩"><h2><span class="ix">1.5</span>与 MySQL / Redis 运维习惯的差异提醒 ⚠ 易踩</h2><h3>💾 备份与回档</h3><p>以 DBM 工单语义为准，<strong>不要</strong>默认等价于 MySQL <code>xtrabackup</code> 物理备份，或 Redis <code>RDB</code> / <code>AOF</code> 的同一套路径与文件布局。</p><h3>🧱 分片集群变更</h3><p>先弄清 <code>mongos / config / shard</code> 三类角色再执行扩缩容；<strong>避免</strong>在业务高峰盲目执行 balancer 相关操作（若平台暴露）。</p><h3>🔐 权限模型</h3><p>MongoDB 用户与角色模型与 MySQL <code>GRANT</code>、Redis <code>ACL</code> 不同；授权走 <code>MONGODB_AUTHORIZE_RULES</code> 等工单（详见第 4 章 §4.6）。</p></section><nav class="pager"><a href="README.html"><span class="arrow">⬅</span><span><span class="lbl">PREV</span><span class="ttl">⬅ 返回目录</span></span></a><a class="next" href="02-cluster-topology.html"><span><span class="lbl">NEXT</span><span class="ttl">下一章 · 集群拓扑与节点规范 ➡</span></span><span class="arrow">➡</span></a></nav>
   </main>
 </div>
 <script src="../assets/app.js?v=20260520c"></script>

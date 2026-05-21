@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>第 2 章 · 蓝鲸 DBM 中的集群形态 | MongoDB 手册</title>
+<title>第 2 章 · 集群拓扑与节点规范 | MongoDB 手册</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../assets/style.css?v=20260520c" />
@@ -14,12 +14,7 @@
   <main class="main">
     <nav class="crumb"><a href="../index.html">🏠 首页</a><span class="sep">/</span><span>第 2 章</span><span class="sep">/</span><span style="color:#cbd5e1">第 2 章 · 蓝鲸 DBM 中的集群形态</span></nav>
     <h1 class="page-title">第 2 章 · 蓝鲸 DBM 中的集群形态</h1>
-    <p class="page-lead">🛡 <strong>部署原则（蓝鲸 DBM 默认规范）</strong></p>
-<p>平台支持两类 MongoDB 集群类型，对应 <code>ClusterType</code> 中的两个常量。本章帮助你<strong>把 UI 字段、代码常量和真实拓扑对应起来</strong>，便于在控制台一眼看懂角色分布。</p>
-<section class="section" id="21-类型一mongoreplicaset副本集集群">
-  <h2><span class="ix">2.1</span>类型一：MongoReplicaSet（副本集集群）</h2>
-<p>典型副本集拓扑（蓝鲸 DBM <strong>现网最常见</strong>）：<strong>m1 + m2 + backup</strong> 三节点 PSS——<strong>m1、m2 的 <code>priority</code> 同时为 1</strong>，均可参与选主、均可承接读；<strong>backup 为 <code>priority = 0</code> 且 <code>hidden = true</code></strong>，永不当选 Primary，专跑日常备份。</p>
-<pre><code>         ┌─────────────────────┐         ┌─────────────────────┐
+<p>平台支持两类 MongoDB 集群类型，对应 <code>ClusterType</code> 中的两个常量。本章帮助你<strong>把 UI 字段、代码常量和真实拓扑对应起来</strong>，便于在控制台一眼看懂角色分布。</p><section class="section" id="2-1-类型一-mongoreplicaset-副本集集群"><h2><span class="ix">2.1</span>类型一：MongoReplicaSet（副本集集群）</h2><p>典型副本集拓扑（蓝鲸 DBM <strong>现网最常见</strong>）：<strong>m1 + m2 + backup</strong> 三节点 PSS——<strong>m1、m2 的 <code>priority</code> 同时为 1</strong>，均可参与选主、均可承接读；<strong>backup 为 <code>priority = 0</code> 且 <code>hidden = true</code></strong>，永不当选 Primary，专跑日常备份。</p><pre><code>         ┌─────────────────────┐         ┌─────────────────────┐
          │  m1 · mongod        │         │  m2 · mongod        │
          │  priority = 1       │◄───────►│  priority = 1       │
          │  hidden = false     │  选举   │  hidden = false     │
@@ -34,87 +29,10 @@
                     │  priority = 0       │
                     │  hidden = true      │
                     │  仅备份 · 不当主     │
-                    └─────────────────────┘</code></pre>
-<div class="callout info"><div class="ico">💡</div><div class="body">除单节点测试场景外，<strong>生产副本集至少 3 节点</strong>：<strong>m1、m2</strong>（<code>priority=1</code>）+ <strong>backup</strong>（<code>priority=0</code>）。 平台初始化逻辑（<code>get_replicaset_init_kwargs</code>）对<strong>除最后一个成员外</strong>均赋 <code>priority=1</code>，<strong>最后一个成员</strong>（对应 <code>backup</code> 槽位）赋 <code>priority=0</code> + <code>hidden=true</code>。</div></div>
-<div class="callout info"><div class="ico">💡</div><div class="body">📌 <strong>元数据角色名 vs MongoDB 运行时 Primary</strong> - DBM 控制台里 <strong>m1</strong> 常标为「主」、<strong>m2</strong> 标为「从」，这是<strong>命名槽位 / 域名规划</strong>（<code>m1.*.db</code> 等多作集群入口），<strong>不等于</strong> m1 的 <code>priority</code> 必须高于 m2。 - <strong>现网标准配置下 m1、m2 的 <code>priority</code> 均为 1</strong>，谁当 Primary 由副本集<strong>选举</strong>决定；故障切换后 Primary 可能在 m1 或 m2 上。 - 首次 <code>rs.initiate</code> 时，执行 init 的节点可能<strong>临时</strong>被脚本 <code>priority+1</code> 以稳定首次选主（<code>initiate_replicaset</code>）；稳态配置仍以平台下发的 <strong>m1/m2=1、backup=0</strong> 为准。</div></div>
-<h3>节点角色矩阵（三节点标准形态）</h3>
-<table class="tbl"><thead><tr><th>DBM 槽位</th><th>MongoDB 运行时角色</th><th>典型 <code>priority</code> / <code>hidden</code></th><th>说明</th></tr></thead><tbody>
-<tr><td><strong>m1</strong></td><td>Primary 或 Secondary</td><td><code>1</code> / <code>false</code></td><td>与 m2 <strong>同权</strong>选主；产生或回放 oplog；可写（当其为 Primary 时）</td></tr>
-<tr><td><strong>m2</strong></td><td>Primary 或 Secondary</td><td><code>1</code> / <code>false</code></td><td>与 m1 <strong>同权</strong>选主；可承接 <code>readPreference=secondary</code> 读</td></tr>
-<tr><td><strong>backup</strong></td><td>Secondary（备份专用）</td><td><code>0</code> / <code>true</code></td><td><strong>永不当选 Primary</strong>；客户端路由不可见；bk-dbmon 在此节点跑 mongodump</td></tr>
-</tbody></table>
-<table class="tbl"><thead><tr><th>抽象角色</th><th>关键属性</th><th>说明</th></tr></thead><tbody>
-<tr><td><strong>可选举成员</strong>（m1、m2）</td><td><code>priority = 1</code> · <code>votes = 1</code> · <code>hidden = false</code></td><td>参与选举；任一可成为 Primary</td></tr>
-<tr><td><strong>Backup 成员</strong></td><td><code>priority = 0</code> · <code>votes = 1</code> · <code>hidden = true</code></td><td>仅复制 + 备份，不抢主、不承接业务读</td></tr>
-</tbody></table>
-<h3>关键属性</h3>
-<ul>
-  <li>常量：<code>MongoReplicaSet</code></li>
-  <li>访问入口：通常以 <strong>主域名 / cluster_entry</strong> 暴露；连接串可包含 <code>replicaSet</code> 参数。</li>
-  <li>适用：数据量与写入可在单集群「多副本」满足时优先选用。</li>
-  <li>容灾：3 节点架构允许任意 1 节点宕机仍可正常读写；如需更高可用性可扩展至 5/7 节点（奇数）。</li>
-</ul>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠ <strong>为什么 backup 节点要 priority=0？</strong> 备份过程会消耗大量磁盘 IO 与 CPU。如果 backup 节点保留选主资格，一旦 Primary 故障被选为新主，正在执行的备份任务会与突增的线上流量竞争资源，导致业务抖动。<code>priority=0</code> 从制度上杜绝了这一风险。</div></div>
-</section>
-<section class="section" id="22-节点命名规范">
-  <h2><span class="ix">2.2</span>节点命名规范</h2>
-<p>蓝鲸 DBM 在元数据层为副本集每个成员定义了固定的<strong>角色名（instance_role）</strong>与<strong>子域名前缀</strong>，二者一一对应。代码常量见：</p>
-<ul>
-  <li><code>backend/db_meta/enums/instance_role.py</code> 中的 <code>InstanceRole</code></li>
-  <li><code>backend/flow/consts.py</code> 中的 <code>MongoDBDomainPrefix</code></li>
-</ul>
-<pre><code>m1 (Primary)  m2 (Secondary)  m3 (Secondary)  m4..m10 (扩展位)  backup (备份从)</code></pre>
-<table class="tbl"><thead><tr><th>角色名</th><th>InstanceRole 常量</th><th>子域名前缀</th><th>典型 priority</th><th>说明</th></tr></thead><tbody>
-<tr><td><code>m1</code></td><td><code>MONGO_M1</code></td><td><code>m1.&lt;set&gt;.&lt;app&gt;.db</code></td><td><strong>1</strong></td><td>规划上的「主」槽位；<strong>与 m2 同 priority</strong>，运行时谁为 Primary 由选举决定</td></tr>
-<tr><td><code>m2 ~ m10</code></td><td><code>MONGO_M2 ~ MONGO_M10</code></td><td><code>m{2..10}.&lt;set&gt;.&lt;app&gt;.db</code></td><td><strong>1</strong>（可选举成员）</td><td>普通从节点，可被选主、可承接读；<code>m4~m10</code> 为扩展位（5/7/9 节点架构）</td></tr>
-<tr><td><code>backup</code></td><td><code>MONGO_BACKUP</code></td><td><code>backup.&lt;set&gt;.&lt;app&gt;.db</code></td><td><strong>0</strong></td><td><code>hidden=true</code>，专跑日常备份，不参与选主</td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">📌 <strong>命名约束</strong> - 当前 DBM 每个副本集<strong>最多支持 11 个成员</strong>：<code>m1 + m2~m10 + backup</code>，对应 <code>calculate_cluster.py</code> 中 <code>domain_prefix</code> 的 11 个槽位。 - 子域名前缀和角色名严格一一对应，<strong>不可自定义</strong>；例如不能把 <code>m3</code> 写成 <code>m_3</code> 或 <code>node3</code>。 - 分片集群的 shard 内部同样沿用这套命名（每个 shard 是一个独立副本集）；config server 副本集成员同样用 <code>m1/m2/m3/backup</code>。 - 分片集群的接入层 <code>mongos</code> 不属于副本集成员，使用独立子域名 <code>mongos.&lt;cluster&gt;.&lt;app&gt;.db</code>。</div></div>
-</section>
-<section class="section" id="23-按节点数量分类的部署形态">
-  <h2><span class="ix">2.3</span>按节点数量分类的部署形态</h2>
-<p>同一套命名规则下，副本集会根据节点数量呈现三类形态。生产场景<strong>必须</strong>选用 3 节点及以上方案。</p>
-<h3>① 单节点（Standalone）— 仅测试 / POC</h3>
-<p>仅 1 个 mongod 实例，<strong>没有高可用、没有数据冗余</strong>。DBM 中通过集群标签 <code>single_node:true</code> 标识，巡检会跳过成员数检查。</p>
-<pre><code>┌──────────────┐
+                    └─────────────────────┘</code></pre><div class="callout tip"><div class="ico">✅</div><div class="body"><p>🛡 <strong>部署原则（蓝鲸 DBM 默认规范）</strong></p><p>除单节点测试场景外，<strong>生产副本集至少 3 节点</strong>：<strong>m1、m2</strong>（<code>priority=1</code>）+ <strong>backup</strong>（<code>priority=0</code>）。 平台初始化逻辑对<strong>除最后一个成员外</strong>均赋 <code>priority=1</code>，<strong>最后一个成员</strong>（对应 <code>backup</code> 槽位）赋 <code>priority=0</code> + <code>hidden=true</code>。</p></div></div><div class="callout info"><div class="ico">💡</div><div class="body"><p>📌 <strong>元数据角色名 vs MongoDB 运行时 Primary</strong></p><ul><li>DBM 控制台里 <strong>m1</strong> 常标为「主」、<strong>m2</strong> 标为「从」，这是<strong>命名槽位 / 域名规划</strong>（<code>m1.*.db</code> 等多作集群入口），<strong>不等于</strong> m1 的 <code>priority</code> 必须高于 m2。</li><li><strong>现网标准配置下 m1、m2 的 <code>priority</code> 均为 1</strong>，谁当 Primary 由副本集<strong>选举</strong>决定；故障切换后 Primary 可能在 m1 或 m2 上。</li><li>首次 <code>rs.initiate</code> 时，执行 init 的节点可能<strong>临时</strong>被脚本 <code>priority+1</code> 以稳定首次选主；稳态配置仍以平台下发的 <strong>m1/m2=1、backup=0</strong> 为准。</li></ul></div></div><h3>节点角色矩阵（三节点标准形态）</h3><table class="tbl"><thead><tr><th>DBM 槽位</th><th>MongoDB 运行时角色</th><th>典型 <code>priority</code> / <code>hidden</code></th><th>说明</th></tr></thead><tbody><tr><td><strong>m1</strong></td><td>Primary 或 Secondary</td><td><code>1</code> / <code>false</code></td><td>与 m2 <strong>同权</strong>选主；产生或回放 oplog；可写（当其为 Primary 时）</td></tr><tr><td><strong>m2</strong></td><td>Primary 或 Secondary</td><td><code>1</code> / <code>false</code></td><td>与 m1 <strong>同权</strong>选主；可承接 <code>readPreference=secondary</code> 读</td></tr><tr><td><strong>backup</strong></td><td>Secondary（备份专用）</td><td><code>0</code> / <code>true</code></td><td><strong>永不当选 Primary</strong>；客户端路由不可见；bk-dbmon 在此节点跑 mongodump</td></tr></tbody></table><table class="tbl"><thead><tr><th>抽象角色</th><th>关键属性</th><th>说明</th></tr></thead><tbody><tr><td><strong>可选举成员</strong>（m1、m2）</td><td><code>priority = 1</code> · <code>votes = 1</code> · <code>hidden = false</code></td><td>参与选举；任一可成为 Primary</td></tr><tr><td><strong>Backup 成员</strong></td><td><code>priority = 0</code> · <code>votes = 1</code> · <code>hidden = true</code></td><td>仅复制 + 备份，不抢主、不承接业务读</td></tr></tbody></table><h3>关键属性</h3><ul><li>常量：<code>MongoReplicaSet</code></li><li>访问入口：通常以 <strong>主域名 / cluster_entry</strong> 暴露；连接串可包含 <code>replicaSet</code> 参数。</li><li>适用：数据量与写入可在单集群「多副本」满足时优先选用。</li><li>容灾：3 节点架构允许任意 1 节点宕机仍可正常读写；如需更高可用性可扩展至 5/7 节点（奇数）。</li></ul><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>为什么 backup 节点要 priority=0？</strong></p><p>备份过程会消耗大量磁盘 IO 与 CPU。如果 backup 节点保留选主资格，一旦 Primary 故障被选为新主，正在执行的备份任务会与突增的线上流量竞争资源，导致业务抖动。<code>priority=0</code> 从制度上杜绝了这一风险。</p></div></div></section><section class="section" id="2-2-节点命名规范"><h2><span class="ix">2.2</span>节点命名规范</h2><p>蓝鲸 DBM 在元数据层为副本集每个成员定义了固定的<strong>角色名</strong>与<strong>子域名前缀</strong>，二者一一对应。</p><pre><code>m1 (主槽位)   m2 (从槽位)    m3 (从槽位)    m4..m10 (扩展位)  backup (备份槽位)</code></pre><table class="tbl"><thead><tr><th>角色名</th><th>角色常量</th><th>子域名前缀</th><th>典型 priority</th><th>说明</th></tr></thead><tbody><tr><td><code>m1</code></td><td><code>MONGO_M1</code></td><td><code>m1.&lt;set&gt;.&lt;app&gt;.db</code></td><td><strong>1</strong></td><td>规划上的「主」槽位；<strong>与 m2 同 priority</strong>，运行时谁为 Primary 由选举决定</td></tr><tr><td><code>m2 ~ m10</code></td><td><code>MONGO_M2 ~ MONGO_M10</code></td><td><code>m{2..10}.&lt;set&gt;.&lt;app&gt;.db</code></td><td><strong>1</strong>（可选举成员）</td><td>普通从节点，可被选主、可承接读；<code>m4~m10</code> 为扩展位（5/7/9 节点架构）</td></tr><tr><td><code>backup</code></td><td><code>MONGO_BACKUP</code></td><td><code>backup.&lt;set&gt;.&lt;app&gt;.db</code></td><td><strong>0</strong></td><td><code>hidden=true</code>，专跑日常备份，不参与选主</td></tr></tbody></table><div class="callout info"><div class="ico">💡</div><div class="body"><p>📌 <strong>命名约束</strong></p><ul><li>当前 DBM 每个副本集<strong>最多支持 11 个成员</strong>：<code>m1 + m2~m10 + backup</code>。</li><li>子域名前缀和角色名严格一一对应，<strong>不可自定义</strong>；例如不能把 <code>m3</code> 写成 <code>m_3</code> 或 <code>node3</code>。</li><li>分片集群的 shard 内部同样沿用这套命名（每个 shard 是一个独立副本集）；config server 副本集成员同样用 <code>m1/m2/m3/backup</code>。</li><li>分片集群的接入层 <code>mongos</code> 不属于副本集成员，使用独立子域名 <code>mongos.&lt;cluster&gt;.&lt;app&gt;.db</code>。</li></ul></div></div></section><section class="section" id="2-3-按节点数量分类的部署形态"><h2><span class="ix">2.3</span>按节点数量分类的部署形态</h2><p>同一套命名规则下，副本集会根据节点数量呈现三类形态。生产场景<strong>必须</strong>选用 3 节点及以上方案。</p><h3>① 单节点（Standalone）— 仅测试 / POC</h3><p>仅 1 个 mongod 实例，<strong>没有高可用、没有数据冗余</strong>。DBM 中通过集群标签 <code>single_node:true</code> 标识，巡检会跳过成员数检查。</p><pre><code>┌──────────────┐
 │ m1 (Primary) │
-└──────────────┘</code></pre>
-<ul>
-  <li>计费用最低，但宕机即整集群不可用</li>
-  <li><strong>禁止</strong>承载生产业务，不跑日常备份</li>
-  <li>典型用途：开发联调、临时压测环境</li>
-</ul>
-<div class="callout info"><div class="ico">💡</div><div class="body">🏷 标签：<code>无 backup 节点</code> · ⚠ <code>不可生产</code></div></div>
-<h3>② 三节点 PSS（推荐）— 生产标准最小部署</h3>
-<p>蓝鲸 DBM <strong>默认且推荐</strong>的副本集形态：<strong>m1 + m2 + backup</strong>（允许 1 节点宕机仍可读写）。</p>
-<pre><code>m1 (priority=1)  ─  m2 (priority=1)  ─  backup (priority=0, hidden)
-        └──────── 二者均可当选 Primary ────────┘</code></pre>
-<table class="tbl"><thead><tr><th>成员</th><th>priority</th><th>hidden</th><th>说明</th></tr></thead><tbody>
-<tr><td>m1</td><td><strong>1</strong></td><td>false</td><td>与 m2 同权；常为集群入口域名所在槽位</td></tr>
-<tr><td>m2</td><td><strong>1</strong></td><td>false</td><td>与 m1 同权；故障时可接替 Primary</td></tr>
-<tr><td>backup</td><td><strong>0</strong></td><td>true</td><td>仅备份；bk-dbmon 只在此节点发起 mongodump</td></tr>
-</tbody></table>
-<ul>
-  <li>选举仲裁需要奇数票，3 节点天然满足（m1、m2、backup 各 1 票）</li>
-  <li><strong>不要</strong>误以为必须「m1 priority 高于 m2」；现网以 <strong>双 1 + backup 0</strong> 为主</li>
-  <li>巡检要求：<code>set</code> 至少 3 个成员（<code>check_affinity</code> 中 <code>min_members=3</code>）</li>
-</ul>
-<div class="callout info"><div class="ico">💡</div><div class="body">🏷 标签：✅ <code>高可用</code> · ✅ <code>日常备份</code> · <code>性价比最佳</code></div></div>
-<h3>③ 多节点（5/7/…，最大 11）— 读扩展 / 跨城多副本</h3>
-<p>在 3 节点基础上扩容至 <strong>5 / 7 / 9 / 11</strong> 个成员（建议奇数），增加只读副本承接读流量或满足跨城容灾。</p>
-<pre><code>m1  m2  m3  m4  ……  backup</code></pre>
-<ul>
-  <li>新增成员依次占用 <code>m4 → m10</code> 槽位；<code>backup</code> 始终保留 1 个</li>
-  <li>票数过多会增加选举开销，非必要不建议超过 7 节点</li>
-  <li>跨城副本可设 <code>priority=0 + hidden=true</code> 仅作灾备从</li>
-</ul>
-<div class="callout info"><div class="ico">💡</div><div class="body">🏷 标签：<code>读扩展</code> · <code>跨城容灾</code> · ⚠ <code>上限 11</code></div></div>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠ <strong>蓝鲸 DBM 的硬性约束</strong> - 副本集成员数最多 <strong>11 个</strong>（<code>m1~m10</code> + <code>backup</code>），由代码 <code>domain_prefix</code> 数组写死。 - 除带 <code>single_node:true</code> 标签的测试集群外，每个副本集 / shard <strong>必须 ≥ 3 个</strong>成员，且至少包含 1 个 <code>backup</code> 节点。 - 分片集群中 <code>mongos</code> 接入层至少 <strong>2 个</strong>实例（<code>min_members=2</code>），避免单点。故障 mongos 可由 <strong>DBHA</strong> 从 DNS/CLB 摘除，详见 <a href="14-dbha-autofix.html">第 14 章</a>。</div></div>
-</section>
-<section class="section" id="24-类型二mongoshardedcluster分片集群">
-  <h2><span class="ix">2.4</span>类型二：MongoShardedCluster（分片集群）</h2>
-<p>由 <strong>3 类角色</strong> 协同工作：</p>
-<pre><code>            ┌─────────────┐    ┌─────────────┐
+└──────────────┘</code></pre><ul><li>计费用最低，但宕机即整集群不可用</li><li><strong>禁止</strong>承载生产业务，不跑日常备份</li><li>典型用途：开发联调、临时压测环境</li></ul><div class="callout info"><div class="ico">💡</div><div class="body"><p>🏷 标签：<code>无 backup 节点</code> · ⚠ <code>不可生产</code></p></div></div><h3>② 三节点 PSS（推荐）— 生产标准最小部署</h3><p>蓝鲸 DBM <strong>默认且推荐</strong>的副本集形态：<strong>m1 + m2 + backup</strong>（允许 1 节点宕机仍可读写）。</p><pre><code>m1 (priority=1)  ─  m2 (priority=1)  ─  backup (priority=0, hidden)
+        └──────── 二者均可当选 Primary ────────┘</code></pre><table class="tbl"><thead><tr><th>成员</th><th>priority</th><th>hidden</th><th>说明</th></tr></thead><tbody><tr><td>m1</td><td><strong>1</strong></td><td>false</td><td>与 m2 同权；常为集群入口域名所在槽位</td></tr><tr><td>m2</td><td><strong>1</strong></td><td>false</td><td>与 m1 同权；故障时可接替 Primary</td></tr><tr><td>backup</td><td><strong>0</strong></td><td>true</td><td>仅备份；bk-dbmon 只在此节点发起 mongodump</td></tr></tbody></table><ul><li>选举仲裁需要奇数票，3 节点天然满足（m1、m2、backup 各 1 票）</li><li><strong>不要</strong>误以为必须「m1 priority 高于 m2」；现网以 <strong>双 1 + backup 0</strong> 为主</li><li>巡检要求：<code>set</code> 至少 3 个成员</li></ul><div class="callout info"><div class="ico">💡</div><div class="body"><p>🏷 标签：✅ <code>高可用</code> · ✅ <code>日常备份</code> · <code>性价比最佳</code></p></div></div><h3>③ 多节点（5/7/…，最大 11）— 读扩展 / 跨城多副本</h3><p>在 3 节点基础上扩容至 <strong>5 / 7 / 9 / 11</strong> 个成员（建议奇数），增加只读副本承接读流量或满足跨城容灾。</p><pre><code>m1  m2  m3  m4  ……  backup</code></pre><ul><li>新增成员依次占用 <code>m4 → m10</code> 槽位；<code>backup</code> 始终保留 1 个</li><li>票数过多会增加选举开销，非必要不建议超过 7 节点</li><li>跨城副本可设 <code>priority=0 + hidden=true</code> 仅作灾备从</li></ul><div class="callout info"><div class="ico">💡</div><div class="body"><p>🏷 标签：<code>读扩展</code> · <code>跨城容灾</code> · ⚠ <code>上限 11</code></p></div></div><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>蓝鲸 DBM 的硬性约束</strong></p><ul><li>副本集成员数最多 <strong>11 个</strong>（<code>m1~m10</code> + <code>backup</code>），由 DBM 元数据层固定。</li><li>除带 <code>single_node:true</code> 标签的测试集群外，每个副本集 / shard <strong>必须 ≥ 3 个</strong>成员，且至少包含 1 个 <code>backup</code> 节点。</li><li>分片集群中 <code>mongos</code> 接入层至少 <strong>2 个</strong>实例，避免单点。故障 mongos 可由 <strong>DBHA</strong> 从 DNS/CLB 摘除，详见 <a href="14-dbha-autofix.html">第 14 章</a>。</li></ul></div></div></section><section class="section" id="2-4-类型二-mongoshardedcluster-分片集群"><h2><span class="ix">2.4</span>类型二：MongoShardedCluster（分片集群）</h2><p>由 <strong>3 类角色</strong> 协同工作：</p><pre><code>            ┌─────────────┐    ┌─────────────┐
             │  mongos #1  │    │  mongos #2  │   路由 / 接入层
             └──────┬──────┘    └──────┬──────┘
                    └──────────┬───────┘
@@ -128,24 +46,12 @@
  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
  │ Shard 1  │   │ Shard 2  │   │   ...    │   │ Shard N  │
  │  (RS)    │   │  (RS)    │   │          │   │  (RS)    │
- └──────────┘   └──────────┘   └──────────┘   └──────────┘</code></pre>
-<ul>
-  <li>常量：<code>MongoShardedCluster</code></li>
-  <li>每个 shard 通常本身就是一个 <strong>副本集</strong>，配合 config server 提供高可用 + 横向扩展。</li>
-  <li>适用：单集群容量 / 写入需多分片线性扩展时。</li>
-</ul>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠ <strong>选型不确定时的建议</strong> 优先选 <strong>副本集</strong>；确需水平分片再迁分片集群。详见 <a href="03-first-deploy.html">§3.3 选型决策</a>。</div></div>
-</section>
-<section class="section" id="25-ui-字段含义对照">
-  <h2><span class="ix">2.5</span>UI 字段含义对照</h2>
-<p>集群列表 / 详情中常见的拓扑分组字段：</p>
-<table class="tbl"><thead><tr><th>字段 / 分组</th><th>含义</th><th>出现场景</th></tr></thead><tbody>
-<tr><td><code>mongos</code></td><td>分片集群接入层实例</td><td>分片集群</td></tr>
-<tr><td><code>mongo_config</code></td><td>Config Server 角色实例</td><td>分片集群</td></tr>
-<tr><td><code>mongodb</code></td><td>存储节点（副本集成员或 shard 上的 mongod）</td><td>两类集群</td></tr>
-<tr><td><code>master_domain</code> / <code>cluster_entry</code></td><td>访问入口域名 / 端口（以界面为准）</td><td>两类集群</td></tr>
-</tbody></table>
-</section>
+ └──────────┘   └──────────┘   └──────────┘   └──────────┘</code></pre><ul><li>常量：<code>MongoShardedCluster</code></li><li>每个 shard 通常本身就是一个 <strong>副本集</strong>，配合 config server 提供高可用 + 横向扩展。</li><li>适用：单集群容量 / 写入需多分片线性扩展时。</li></ul><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>选型不确定时的建议</strong></p><p>优先选 <strong>副本集</strong>；确需水平分片再迁分片集群。分片集群额外要先决策 shard key，见下一节 <a href="#25-shard-key分片键">§2.5 Shard Key</a>。</p></div></div></section><section class="section" id="2-5-shard-key-分片键"><h2><span class="ix">2.5</span>Shard Key（分片键）</h2><p><strong>Shard Key</strong> 是分片集群最重要的设计点：MongoDB 根据集合的分片键把文档划分为多个 <strong>chunk</strong>，再把 chunk 分布到不同 shard。选错 shard key，会直接影响写入是否打满单 shard、查询是否 scatter-gather、后续扩容是否均衡。</p><h3>基本概念</h3><table class="tbl"><thead><tr><th>概念</th><th>说明</th></tr></thead><tbody><tr><td><strong>Shard Key</strong></td><td>一个字段或复合字段，例如 <code>{ user_id: 1 }</code>、<code>{ tenant_id: 1, created_at: 1 }</code></td></tr><tr><td><strong>Chunk</strong></td><td>按 shard key 范围切出来的数据区间，是 balancer 迁移的基本单位</td></tr><tr><td><strong>Balancer</strong></td><td>在 shard 间迁移 chunk，让数据和负载尽量均衡；迁移会带来 IO / 网络 / 锁等待等额外开销</td></tr><tr><td><strong>Targeted Query</strong></td><td>查询条件包含 shard key，<code>mongos</code> 能定位到少数 shard</td></tr><tr><td><strong>Scatter-Gather</strong></td><td>查询条件不含 shard key，<code>mongos</code> 需要广播到多个 shard，延迟和资源消耗更高</td></tr></tbody></table><h3>常见分片键类型</h3><table class="tbl"><thead><tr><th>类型</th><th>例子</th><th>适合场景</th><th>风险</th></tr></thead><tbody><tr><td><strong>范围型</strong></td><td><code>{ user_id: 1 }</code></td><td>常按区间查询，且 key 分布较均匀</td><td>单调递增字段（如纯时间、自增 ID）容易写热点</td></tr><tr><td><strong>哈希型</strong></td><td><code>{ user_id: "hashed" }</code></td><td>写入分布优先，按等值查询为主</td><td>范围查询无法天然按区间命中</td></tr><tr><td><strong>复合型</strong></td><td><code>{ tenant_id: 1, user_id: 1 }</code></td><td>多租户、业务维度明确</td><td>前缀字段低基数会造成大租户热点</td></tr></tbody></table><h3>选择原则</h3><ol><li><strong>高基数</strong>：取值要足够多，避免大量数据落在少数 key 上。</li><li><strong>分布均匀</strong>：写入不能长期集中在同一个 shard。</li><li><strong>查询常带</strong>：核心查询最好带上 shard key，减少 scatter-gather。</li><li><strong>避免纯单调递增</strong>：如只用 <code>created_at</code>、自增 ID，新增数据容易持续打到最后一个 chunk。</li><li><strong>和唯一约束一起设计</strong>：分片集合上的唯一索引通常需要包含 shard key，否则约束语义会受限。</li></ol><h3>Scatter-Gather是什么</h3><p>在分片集群里，<code>mongos</code> 负责根据查询条件决定请求发到哪些 shard。如果查询条件包含 shard key，<code>mongos</code> 通常可以定位到一个或少数 shard，这叫 <strong>Targeted Query</strong>。当一个查询无法通过分片键或索引直接定位到具体的某个 shard 时，路由节点就会采用 <strong>Scatter-Gather</strong>：</p><ul><li><strong>Scatter（分散）</strong>：把查询请求同时发送到所有相关 shard 上。</li><li><strong>Gather（聚集）</strong>：等待各 shard 返回结果后，由 <code>mongos</code> 汇总、排序和合并，最后返回给客户端。</li></ul><pre><code class="lang-javascript">// 推荐：带 shard key，mongos 可以按 user_id 路由到目标 shard
+db.orders.find({ user_id: 10001, status: "paid" })
+
+// 风险：不带 shard key，可能广播到所有 shard
+db.orders.find({ status: "paid" })</code></pre><table class="tbl"><thead><tr><th>项目</th><th>Targeted Query</th><th>Scatter-Gather</th></tr></thead><tbody><tr><td>路由方式</td><td>命中一个或少数 shard</td><td>广播到多个 shard</td></tr><tr><td>资源消耗</td><td>只消耗目标 shard</td><td>所有参与 shard 都要扫描/计算</td></tr><tr><td>延迟表现</td><td>通常更稳定</td><td>受最慢 shard 影响，容易抖动</td></tr><tr><td>排障信号</td><td>慢日志中 <code>nShards</code> 较小</td><td>慢日志中 <code>nShards</code> 接近 shard 总数</td></tr></tbody></table><p>运维上看到“单个 shard 数据量不大但查询仍慢”时，要优先检查查询条件是否缺少 shard key。业务侧应尽量让核心查询带上 shard key，或让复合 shard key 的前缀字段与高频查询条件对齐。</p><h3>当前最佳实践：hashed shard key + 关闭 balancer</h3><p>蓝鲸 DBM MongoDB 分片集群的稳态建议是：<strong>优先使用 hashed shard key，并默认关闭 balancer</strong>。</p><table class="tbl"><thead><tr><th>项目</th><th>建议</th><th>原因</th></tr></thead><tbody><tr><td><strong>分片键类型</strong></td><td>优先 <code>{ biz_key: "hashed" }</code></td><td>写入按 hash 均匀打散，降低单调递增字段造成的热点风险</td></tr><tr><td><strong>业务查询</strong></td><td>关键等值查询带上 shard key</td><td>让 <code>mongos</code> 能 targeted routing，避免广播到所有 shard</td></tr><tr><td><strong>Balancer</strong></td><td>稳态默认关闭</td><td>避免业务高峰后台 chunk migration 带来 IO、网络、锁等待和跨 shard 抖动</td></tr><tr><td><strong>开启窗口</strong></td><td>仅在维护窗口短期开启</td><td>用于扩容后重均衡、人工 chunk 迁移、系统集合初始化等受控场景</td></tr></tbody></table><p>示例（以 <code>user_id</code> 为业务分布键）：</p><pre><code class="lang-javascript">sh.shardCollection("app.orders", { user_id: "hashed" })
+sh.setBalancerState(false)</code></pre><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>为什么不是一直开 balancer？</strong></p><p>Balancer 的目标是让 chunk 分布更均衡，但迁移本身不是“零成本”：会消耗源/目标 shard 的磁盘 IO、网络带宽和复制资源。DBM 运维侧更关注稳定性，因此建议<strong>平时关闭</strong>，需要均衡时在低峰/维护窗口有计划地打开。</p></div></div><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>也不要永久从不打开</strong></p><p>某些系统集合初始化、扩容后的数据摊平、历史 chunk 倾斜修复仍然需要 balancer 或手工迁移。若看到 <code>config.system.sessions</code> 未初始化、chunk 长期倾斜等问题，应在 DBA 评估后短期开启，而不是把“关闭 balancer”理解成绝对禁用。</p></div></div><h3>Balancer 运维口径</h3><table class="tbl"><thead><tr><th>场景</th><th>建议</th></tr></thead><tbody><tr><td>新建分片集合</td><td>优先先定 hashed shard key；是否预拆分视版本与数据导入方式评估</td></tr><tr><td>日常运行</td><td><code>sh.setBalancerState(false)</code>，保持路由稳定</td></tr><tr><td>扩容 shard 后</td><td>低峰期短期开启或手工迁移 chunk，观察 <a href="13-performance-views.html">第 13 章</a> 的 <code>Chunks</code> / <code>Chunks Balanced</code></td></tr><tr><td>发现 jumbo chunk</td><td>先判断 shard key 是否导致不可拆分；不要只靠 balancer 反复重试</td></tr><tr><td>业务高峰</td><td>不建议开启 balancer，也不建议做大规模 chunk migration</td></tr></tbody></table><h3>运维侧判断</h3><table class="tbl"><thead><tr><th>现象</th><th>可能原因</th><th>建议</th></tr></thead><tbody><tr><td>某个 shard QPS / CPU 长期高于其他 shard</td><td>shard key 分布不均或热点 key</td><td>看 <a href="13-performance-views.html">第 13 章</a> 分片大盘的 <code>Shard Operations</code> / <code>Chunks</code></td></tr><tr><td>查询慢但单 shard 数据量不大</td><td>查询未带 shard key，触发 scatter-gather</td><td>查 <code>mongo-log</code> 慢日志中的 <code>nShards</code>、<code>planSummary</code>，必要时让业务补 shard key 条件</td></tr><tr><td>扩容 shard 后数据没有明显摊开</td><td>chunk 不均、jumbo chunk 或 balancer 处于关闭状态</td><td>维护窗口短期开启 balancer 或评估手工迁移</td></tr><tr><td>大租户持续打满一个 shard</td><td>分片键前缀低基数（如只按 <code>tenant_id</code>）</td><td>评估复合键或二级维度拆分</td></tr></tbody></table><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>DBA 提醒</strong></p><p>Shard key 是<strong>业务建模决策</strong>，不是单纯的运维参数。DBM 可以部署分片集群、扩容 shard、观察 chunk / balancer 状态，但不应替业务随意决定集合分片键。生产集合分片前，建议先基于真实查询、写入分布、数据增长模型做评审。</p></div></div><p>MongoDB 5.0+ 提供 <strong>resharding</strong> 能力，但迁移成本仍然不低；不要把它当成“分片键选错也没关系”的兜底方案。相关排障可结合 <a href="09-mongodb-logs.html">第 9 章慢日志</a> 与 <a href="13-performance-views.html">第 13 章分片大盘</a>。</p></section><nav class="pager"><a href="01-concepts.html"><span class="arrow">⬅</span><span><span class="lbl">PREV</span><span class="ttl">⬅ 上一章</span></span></a><a class="next" href="03-first-deploy.html"><span><span class="lbl">NEXT</span><span class="ttl">下一章 ➡</span></span><span class="arrow">➡</span></a></nav>
   </main>
 </div>
 <script src="../assets/app.js?v=20260520c"></script>

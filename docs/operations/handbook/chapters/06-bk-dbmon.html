@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>第 6 章 · MongoDB bk-dbmon 使用指引 | MongoDB 手册</title>
+<title>第 6 章 · bk-dbmon 监控与备份 | MongoDB 手册</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="../assets/style.css?v=20260520c" />
@@ -14,149 +14,24 @@
   <main class="main">
     <nav class="crumb"><a href="../index.html">🏠 首页</a><span class="sep">/</span><span>第 6 章</span><span class="sep">/</span><span style="color:#cbd5e1">第 6 章 · MongoDB bk-dbmon 使用指引</span></nav>
     <h1 class="page-title">第 6 章 · MongoDB bk-dbmon 使用指引</h1>
-    <p class="page-lead"><strong>bk-dbmon</strong> 是部署在 MongoDB 机器上的<strong>本地守护进程</strong>，负责例行任务（备份、心跳、健康检查），并通过 <strong>bkmonitorbeat</strong> 与蓝鲸监控体系对接。</p>
-<p>📦 <strong>源码与脚本路径</strong></p>
-<ul>
-  <li>进程：<code>dbm-services/mongodb/db-tools/dbmon/</code></li>
-  <li>安装编排：<code>flow/.../mongodb_install_dbmon.py</code></li>
-  <li>节点执行：<code>dbactuator/pkg/atomjobs/atommongodb/install_dbmon.go</code></li>
-</ul>
-<section class="section" id="61-作用概述">
-  <h2><span class="ix">6.1</span>作用概述</h2>
-<p>根据仓库内 README 描述，bk-dbmon 提供<strong>本地例行任务</strong>能力，典型包括：</p>
-<table class="tbl"><thead><tr><th>能力</th><th>说明</th></tr></thead><tbody>
-<tr><td>💾 <strong>例行备份</strong></td><td>本机备份计划与上报相关任务</td></tr>
-<tr><td>💓 <strong>心跳与健康检查</strong></td><td>周期性探测 <code>mongod</code> / <code>mongos</code> 端口与认证</td></tr>
-<tr><td>📡 <strong>结果上报</strong></td><td>写入本机目录后由 <strong>bkmonitorbeat</strong> 上报至蓝鲸监控</td></tr>
-</tbody></table>
-<p>事件类行为示例（如认证失败、实例状态异常、尝试拉起进程等）见仓库 README。</p>
-</section>
-<section class="section" id="62-在-dbm-中如何安装-更新">
-  <h2><span class="ix">6.2</span>在 DBM 中如何安装 / 更新</h2>
-<h3>工单类型与权限</h3>
-<ul>
-  <li>单据类型：<strong>MongoDB 安装 DBMon</strong> → 常量 <code>MONGODB_INSTALL_DBMON</code></li>
-  <li>IAM 动作 ID 一般为 <code>mongodb_install_dbmon</code>（见 <code>iam_app/migration_json_files/initial.json</code>）</li>
-  <li>菜单名称以你环境蓝鲸权限中心为准</li>
-</ul>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠ <strong>UI 入口提示</strong>：当前仓库前端 <code>TicketTypes</code> 枚举中可能未单独列出该类型，但<strong>后端工单与 IAM 已定义</strong>。若控制台未展示入口，可通过<strong>工单 API / 运维二次开发菜单</strong>或联系平台管理员开启。</div></div>
-<h3>平台实际做了什么（摘要）</h3>
-<ol>
-  <li><strong>拉取介质包</strong>：从介质库拉取 <strong>dbactuator、dbmon、dbtools、mongo-toolkit</strong> 等包的最新或指定版本（<code>get_pkg_info()</code>）。</li>
-  <li><strong>下发到节点</strong>：下发到节点工作目录（<code>MongoUtil().get_mongodb_os_conf()[&quot;file_path&quot;]</code>）。</li>
-  <li><strong>执行 InstallDBMon</strong>：通过 dbactuator 执行 <code>MongoDBActuatorActionEnum.InstallDBMon</code>，以 <code>root</code> 执行、<code>sudo_account</code> 为 <code>mysql</code>。</li>
-  <li><strong>注入默认配置</strong>：注入 <code>http_address</code>: <code>127.0.0.1:6677</code>、<code>report_save_dir</code>（如 <code>/home/mysql/report</code>）及 <strong>bkmonitorbeat</strong> 配置。</li>
-</ol>
-<h3>随其它工单自动安装</h3>
-<p>以下场景会在主流程中<strong>嵌入</strong> <code>add_install_dbmon</code>，<strong>不必单独提单</strong>：</p>
-<ul>
-  <li>MongoDB 集群部署</li>
-  <li>扩缩容</li>
-  <li>集群标准化</li>
-  <li>整机替换 / 迁移等子流程</li>
-</ul>
-</section>
-<section class="section" id="63-flow-入参api">
-  <h2><span class="ix">6.3</span>Flow 入参（API）</h2>
-<p>编排类入口：<code>MongoDBController.install_dbmon</code> → <code>MongoInstallDBMonFlow</code></p>
-<pre><code class="language-http">POST /apis/v1/flow/scene/mongo_install_dbmon</code></pre>
-<h3>Body 字段</h3>
-<table class="tbl"><thead><tr><th>字段</th><th>说明</th></tr></thead><tbody>
-<tr><td><code>uid</code></td><td>工单 UID</td></tr>
-<tr><td><code>created_by</code></td><td>提单人</td></tr>
-<tr><td><code>bk_biz_id</code></td><td>蓝鲸业务 ID</td></tr>
-<tr><td><code>ticket_type</code></td><td>工单类型</td></tr>
-<tr><td><code>action</code></td><td>动作</td></tr>
-<tr><td><code>bk_cloud_id</code></td><td>云区域 ID（必须与集群一致）</td></tr>
-<tr><td><code>infos</code></td><td>字符串列表，见下方 3 种支持形态</td></tr>
-</tbody></table>
-<h3><code>infos</code> 支持形态</h3>
-<table class="tbl"><thead><tr><th>#</th><th>形态</th><th>说明</th></tr></thead><tbody>
-<tr><td>1</td><td><strong>主机 IP</strong></td><td>直接在该机安装 / 更新 bk-dbmon</td></tr>
-<tr><td>2</td><td><strong>集群 ID</strong></td><td>纯数字，会展开为该集群下的 IP 列表</td></tr>
-<tr><td>3</td><td><strong>集群域名</strong></td><td>以 <code>.db</code> 结尾的域名，会先解析为集群 ID 再展开 IP</td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">🚫 <strong>校验</strong>：<code>bk_cloud_id</code> 必须与集群所属云区域一致，否则流程会校验失败。</div></div>
-</section>
-<section class="section" id="64-安装路径与配置">
-  <h2><span class="ix">6.4</span>安装路径与配置</h2>
-<h3>目录约定（与 dbactuator 实现一致）</h3>
-<table class="tbl"><thead><tr><th>项</th><th>路径 / 说明</th></tr></thead><tbody>
-<tr><td>安装目录</td><td><code>/home/mysql/bk-dbmon/</code></td></tr>
-<tr><td>主配置</td><td><code>dbmon-config.yaml</code>（与可执行文件同目录）</td></tr>
-<tr><td>启动脚本</td><td><code>start.sh</code> / <code>stop.sh</code></td></tr>
-<tr><td>本地上报目录示例</td><td><code>/home/mysql/report</code>（流程默认值）</td></tr>
-</tbody></table>
-<h3>进程与自检</h3>
-<ul>
-  <li><code>start.sh</code> 会读取配置中的 <code>http_address</code>，并请求 <code>http://&lt;http_address&gt;/health</code> 判断 bk-dbmon 是否已存活。</li>
-  <li>未启动则 <code>nohup ./bk-dbmon --config=dbmon-config.yaml</code> 拉起。</li>
-  <li>可为 <code>start.sh</code> 传入 <code>debug</code> 以开启调试日志。</li>
-</ul>
-<h3>配置示例（字段含义）</h3>
-<table class="tbl"><thead><tr><th>字段</th><th>含义</th></tr></thead><tbody>
-<tr><td><code>report_save_dir</code> / <code>report_left_day</code></td><td>本机结果保留目录与天数</td></tr>
-<tr><td><code>http_address</code></td><td>HTTP 管理地址（默认 <code>127.0.0.1:6677</code>）</td></tr>
-<tr><td><code>bkmonitorbeat</code></td><td>包含 <code>agent_address</code> / <code>beat_path</code> / <code>event_config</code> / <code>metric_config</code></td></tr>
-<tr><td><code>servers</code></td><td>由流程中的 <code>PrepareInstanceInfo</code> 填充，<strong>勿手改</strong></td></tr>
-</tbody></table>
-</section>
-<section class="section" id="65-常用命令在实例机上">
-  <h2><span class="ix">6.5</span>常用命令（在实例机上）</h2>
-<div class="callout info"><div class="ico">💡</div><div class="body">以下命令在 <code>/home/mysql/bk-dbmon</code> 目录下执行；若企业自定义安装路径，以实际为准。</div></div>
-<h3>启停</h3>
-<pre><code class="language-bash">cd /home/mysql/bk-dbmon
+    <p class="page-lead"><strong>bk-dbmon</strong> 是部署在 MongoDB 机器上的<strong>本地守护进程</strong>，负责备份、心跳、健康检查、事件上报和本地配置管理，并通过 <strong>bkmonitorbeat</strong> 与蓝鲸监控体系对接。</p>
+<section class="section" id="6-1-作用概览"><h2><span class="ix">6.1</span>作用概览</h2><table class="tbl"><thead><tr><th>能力</th><th>说明</th></tr></thead><tbody><tr><td><strong>例行备份</strong></td><td>按 backup 段配置在 backup 节点执行 FULL / INCR 备份</td></tr><tr><td><strong>健康检查</strong></td><td>周期性探测 <code>mongod</code> / <code>mongos</code> 端口、认证和运行状态</td></tr><tr><td><strong>自动拉起</strong></td><td>发现进程不存在时，尝试在本机拉起实例</td></tr><tr><td><strong>事件上报</strong></td><td>将登录异常、自动拉起结果等事件上报到蓝鲸监控</td></tr><tr><td><strong>心跳指标</strong></td><td>上报 <code>mongo_dbmon_heart_beat</code>，用于确认 dbmon 自身存活</td></tr><tr><td><strong>本地运维命令</strong></td><td>提供 meta、alarm、config、conn 等实例机侧辅助命令</td></tr></tbody></table></section><section class="section" id="6-2-安装与更新"><h2><span class="ix">6.2</span>安装与更新</h2><h3>入口</h3><table class="tbl"><thead><tr><th>项</th><th>说明</th></tr></thead><tbody><tr><td>实际入口名称</td><td><strong>集群标准化</strong></td></tr><tr><td>主要作用</td><td>对目标集群补齐或更新 bk-dbmon、dbtools、mongo-toolkit 等运维组件</td></tr><tr><td>权限</td><td>以当前环境蓝鲸权限中心配置为准</td></tr></tbody></table><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>UI 入口提示</strong></p><p>不要按“安装 DBMon”单独找入口；实际在 <strong>集群标准化</strong> 中触发。</p></div></div><h3>平台执行内容</h3><ol><li>从介质库拉取 <strong>dbmon、dbtools、mongo-toolkit</strong> 等包的最新或指定版本。</li><li>下发介质到目标节点工作目录。</li><li>在目标机器上安装或更新 bk-dbmon，并使用 MongoDB 运维用户运行。</li><li>注入默认配置，例如 <code>http_address: 127.0.0.1:6677</code>、<code>report_save_dir</code>、<code>bkmonitorbeat</code> 配置等。</li></ol><h3>自动安装场景</h3><p>以下场景通常也会自动安装或更新 bk-dbmon，<strong>不必额外走集群标准化</strong>：</p><ul><li>MongoDB 集群部署</li><li>扩缩容</li><li>整机替换 / 迁移等维护场景</li></ul><p>bk-dbmon 安装包由平台介质管理维护。若需固定版本，应在 <strong>DBM 介质管理</strong> 中维护可用包，并与环境变更流程对齐。</p></section><section class="section" id="6-3-本机目录与配置"><h2><span class="ix">6.3</span>本机目录与配置</h2><table class="tbl"><thead><tr><th>项</th><th>路径 / 说明</th></tr></thead><tbody><tr><td>安装目录</td><td><code>/home/mysql/bk-dbmon/</code></td></tr><tr><td>主配置</td><td><code>dbmon-config.yaml</code>（与可执行文件同目录）</td></tr><tr><td>启动脚本</td><td><code>start.sh</code> / <code>stop.sh</code></td></tr><tr><td>本地上报目录示例</td><td><code>/home/mysql/report</code></td></tr></tbody></table><h3>进程与自检</h3><ul><li><code>start.sh</code> 会读取配置中的 <code>http_address</code>，并请求 <code>http://&lt;http_address&gt;/health</code> 判断 bk-dbmon 是否已存活。</li><li>未启动则 <code>nohup ./bk-dbmon --config=dbmon-config.yaml</code> 拉起。</li><li>可为 <code>start.sh</code> 传入 <code>debug</code> 以开启调试日志。</li></ul><h3>关键配置字段</h3><table class="tbl"><thead><tr><th>字段</th><th>含义</th></tr></thead><tbody><tr><td><code>report_save_dir</code> / <code>report_left_day</code></td><td>本机结果保留目录与天数</td></tr><tr><td><code>http_address</code></td><td>HTTP 管理地址（默认 <code>127.0.0.1:6677</code>）</td></tr><tr><td><code>bkmonitorbeat</code></td><td>包含 <code>agent_address</code> / <code>beat_path</code> / <code>event_config</code> / <code>metric_config</code></td></tr><tr><td><code>servers</code></td><td>本机托管实例列表，通常由平台生成，<strong>勿手改</strong></td></tr></tbody></table></section><section class="section" id="6-4-常用命令"><h2><span class="ix">6.4</span>常用命令</h2><div class="callout info"><div class="ico">💡</div><div class="body"><p>以下命令在 <code>/home/mysql/bk-dbmon</code> 目录下执行；若企业自定义安装路径，以实际为准。</p></div></div><h3>启停</h3><pre><code class="lang-bash">cd /home/mysql/bk-dbmon
 sh start.sh          # 启动（后台），并尝试加入 crontab 每 2 分钟自检拉起
-sh stop.sh           # 停止</code></pre>
-<h3>元数据 meta</h3>
-<pre><code class="language-bash">./bk-dbmon meta list --port all
+sh stop.sh           # 停止</code></pre><h3>元数据 meta</h3><pre><code class="lang-bash">./bk-dbmon meta list --port all
 ./bk-dbmon meta list --port 27017,27018
-./bk-dbmon meta delete --port 27017,27018   # 清理无效或已下线实例</code></pre>
-<p><code>--port</code> 支持：<code>27017</code>、<code>27017,27018</code>、<code>all</code>、<code>0</code>（<code>0</code> 与 <code>all</code> 语义见 <code>package/readme.md</code>）。</p>
-<h3>告警 alarm</h3>
-<pre><code class="language-bash">./bk-dbmon alarm shield  --port all
+./bk-dbmon meta delete --port 27017,27018   # 清理无效或已下线实例</code></pre><p><code>--port</code> 支持：<code>27017</code>、<code>27017,27018</code>、<code>all</code>、<code>0</code>（<code>0</code> 通常与 <code>all</code> 等价，具体以当前版本帮助为准）。</p><h3>告警 alarm</h3><pre><code class="lang-bash">./bk-dbmon alarm shield  --port all
 ./bk-dbmon alarm unblock --port 27017,27018
-./bk-dbmon alarm list    --port 27017,27018</code></pre>
-<p>平台在<strong>版本升级</strong>等流程中也会通过脚本调用 <code>alarm shield</code> / <code>unblock</code> / <code>meta delete</code>，避免维护窗口误报。</p>
-<h3>动态配置 config</h3>
-<pre><code class="language-bash">./bk-dbmon config get-all --port all
-./bk-dbmon config set --port all -s backup -k enable -V false   # 示例：关闭备份段
-./bk-dbmon config set --port all -s parselog -k enable -V false</code></pre>
-<p><strong>parselog</strong> 默认开启：tail 实例 <code>mongo.log</code>，将 <strong>2.4 文本 / 3.0～4.2 文本 / 4.4+ JSON</strong> 等形态统一写成 <strong><code>jsonlog/</code> 下 JSON 行</strong>（不改动源日志）。解析器版本、输出路径与限流见 <a href="09-mongodb-logs.html">第 9 章 · MongoDB 日志</a>。</p>
-<p>具体 segment / key 以 <code>bk-dbmon config</code> 在线帮助与版本为准。</p>
-<h3>连接 mongosh</h3>
-<pre><code class="language-bash">sh conn.sh 27017
-sh conn.sh 27017 &quot;db.serverStatus().ok&quot;
-sh conn.sh all   &quot;db.adminCommand({ ping: 1 })&quot;</code></pre>
-</section>
-<section class="section" id="66-日常备份策略">
-  <h2><span class="ix">6.6</span>日常备份策略</h2>
-<p>bk-dbmon 内置 <strong>backup</strong> 段，是 MongoDB 集群<strong>日常备份的执行者</strong>。它以本地守护进程的方式在每台机器上独立调度，<strong>只在 backup 节点（priority=0、hidden=true）上真正发起备份</strong>，从而避免对线上读写造成 IO / CPU 抖动（详见 <a href="02-cluster-topology.html">§2.1 副本集拓扑</a>）。</p>
-<h3>顶部要点</h3>
-<table class="tbl"><thead><tr><th>维度</th><th>说明</th></tr></thead><tbody>
-<tr><td>🎯 <strong>谁来备份</strong></td><td>副本集：<strong>backup 节点</strong> 独占执行&lt;br/&gt;分片集群：<strong>每个 shard 的 backup 节点</strong> + <strong>configsvr 的 backup 节点</strong></td></tr>
-<tr><td>⏰ <strong>什么时候备</strong></td><td>默认<strong>每天一次</strong>，业务低峰窗口（如 02:00-06:00）；由 dbmon 巡检调度，无需手工触发</td></tr>
-<tr><td>📦 <strong>怎么备</strong></td><td>逻辑备份 <code>mongodump</code>（默认）&lt;br/&gt;产物落盘 <code>/data/dbbak/mg/mongodump/</code>&lt;br/&gt;可选 gzip 压缩</td></tr>
-</tbody></table>
-<h3>备份执行流程</h3>
-<ol>
-  <li><strong>巡检与角色判定</strong>：dbmon 周期巡检本机所有实例，读取 <code>cluster-config.yaml</code> 中 <code>backup.enable</code>，并通过 <code>rs.isMaster()</code> / <code>rs.conf()</code> 判断当前节点是否为 <strong>backup 节点</strong>。<strong>仅 backup 节点</strong>触发后续步骤。</li>
-  <li><strong>执行 mongodump</strong>：调用 <code>mongo-toolkit-go</code> 包内的 <code>mongodump</code>，目标路径 <code>/data/dbbak/mg/mongodump/&lt;cluster&gt;/&lt;ip&gt;_&lt;port&gt;_&lt;yyyymmdd_hhmmss&gt;/</code>，连接串使用本地 <code>127.0.0.1:&lt;port&gt;</code>，readPreference 直连本节点，避免跨网络。</li>
-  <li><strong>打包 / 上报元数据</strong>：备份完成后压缩成 <code>.tar</code> 或 <code>.tar.gz</code>，并把<strong>备份元数据</strong>（集群、实例、起止时间、文件大小、状态）写到本地 <code>report</code> 目录，由 <strong>bkmonitorbeat</strong> 上报蓝鲸监控。</li>
-  <li><strong>过期清理</strong>：按 <code>backup.keepDays</code> 清理本机 <code>/data/dbbak/mg/mongodump/</code> 下的过期文件，避免占满磁盘；如对接对象存储/备份系统，则在上传成功后由保留策略统一清理。</li>
-</ol>
-<h3>关键参数（segment：<code>backup</code>）</h3>
-<table class="tbl"><thead><tr><th>key</th><th>含义</th><th>典型值</th></tr></thead><tbody>
-<tr><td><code>enable</code></td><td>是否开启日常备份；关闭后该实例完全跳过备份调度</td><td><code>true</code></td></tr>
-<tr><td><code>fullFreq</code></td><td>全量备份频率（天）；多数集群为每日一次</td><td><code>1</code></td></tr>
-<tr><td><code>startTime</code> / <code>endTime</code></td><td>允许执行备份的<strong>窗口时段</strong>，错开业务高峰</td><td><code>02:00</code> - <code>06:00</code></td></tr>
-<tr><td><code>keepDays</code></td><td>本机备份保留天数</td><td><code>3</code> - <code>7</code></td></tr>
-<tr><td><code>gzip</code></td><td>是否开启 gzip 压缩，节省磁盘但增加 CPU</td><td><code>true</code></td></tr>
-<tr><td><code>concurrency</code> / <code>numParallelCollections</code></td><td>mongodump 并发集合数，影响速度与负载</td><td><code>4</code></td></tr>
-</tbody></table>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠ 字段名以当前版本 <code>./bk-dbmon config get-all --port all</code> 输出为准；不同版本可能略有差异。</div></div>
-<h3>产物目录与命名约定</h3>
-<pre><code>/data/dbbak/mg/mongodump/
+./bk-dbmon alarm list    --port 27017,27018</code></pre><p>平台在<strong>版本升级</strong>等维护场景中也会屏蔽或恢复告警，避免维护窗口误报。</p><h3>动态配置 config</h3><pre><code class="lang-bash">./bk-dbmon config get-all --port all</code></pre><p><strong>parselog</strong> 默认开启：tail 实例 <code>mongo.log</code>，将 <strong>2.4 文本 / 3.0～4.2 文本 / 4.4+ JSON</strong> 等形态统一写成 <strong><code>jsonlog/</code> 下 JSON 行</strong>（不改动源日志）。解析器版本、输出路径与限流见 <a href="09-mongodb-logs.html">第 9 章 · MongoDB 日志</a>。</p><p>常见操作示例：</p><pre><code class="lang-bash"># 关闭备份段：适用于临时止损、LogDB 等无需备份场景
+./bk-dbmon config set --port all -s backup -k enable -V false
+
+# 关闭 parselog：适用于日志量突增、解析任务消耗 CPU 时的临时止损
+./bk-dbmon config set --port all -s parselog -k enable -V false
+
+# 增加登录探测超时时间：适用于机器负载高、健康检查偶发 login timeout 的场景
+./bk-dbmon config set --port all -s monitor -k loginTimeout -V 30</code></pre><p>具体 segment / key 以 <code>bk-dbmon config</code> 在线帮助与版本为准。</p><h3>连接 mongosh</h3><pre><code class="lang-bash">sh conn.sh 27017
+sh conn.sh 27017 "db.serverStatus().ok"
+sh conn.sh all   "db.adminCommand({ ping: 1 })"</code></pre></section><section class="section" id="6-5-事件-指标与上报"><h2><span class="ix">6.5</span>事件、指标与上报</h2><h3>自定义事件</h3><table class="tbl"><thead><tr><th>事件名</th><th>级别</th><th>典型触发场景</th></tr></thead><tbody><tr><td><code>mongo_login</code></td><td><code>critical</code></td><td>实例认证失败、实例状态异常、端口有进程但登录超时</td></tr><tr><td><code>mongo_restart</code></td><td><code>warning</code></td><td>健康检查发现进程不存在，尝试自动拉起且成功</td></tr><tr><td><code>mongo_restart</code></td><td><code>critical</code></td><td>健康检查发现进程不存在，尝试自动拉起但失败</td></tr></tbody></table><h3>指标与备份上报</h3><table class="tbl"><thead><tr><th>类型</th><th>说明</th></tr></thead><tbody><tr><td><code>mongo_dbmon_heart_beat</code></td><td>dbmon 心跳时序指标，用于确认 dbmon 自身存活</td></tr><tr><td>备份元数据</td><td>备份完成后写入本机 report 目录，由 bkmonitorbeat 上报；不等同于自定义事件</td></tr></tbody></table></section><section class="section" id="6-6-日常备份策略"><h2><span class="ix">6.6</span>日常备份策略</h2><p>bk-dbmon 内置 <strong>backup</strong> 段，是 MongoDB 集群<strong>日常备份的执行者</strong>。它以本地守护进程的方式在每台机器上独立调度，<strong>只在 backup 节点（priority=0、hidden=true）上真正发起备份</strong>，从而避免对线上读写造成 IO / CPU 抖动（详见 <a href="02-cluster-topology.html">§2.1 副本集拓扑</a>）。</p><h3>备份要点</h3><table class="tbl"><thead><tr><th>维度</th><th>说明</th></tr></thead><tbody><tr><td>谁来备份</td><td>副本集：<strong>backup 节点</strong> 独占执行&lt;br/&gt;分片集群：<strong>每个 shard 的 backup 节点</strong> + <strong>configsvr 的 backup 节点</strong></td></tr><tr><td>什么时候备</td><td>默认 <strong>每小时一次增量备份</strong>（<code>incrFreq=3600</code>），<strong>每日一次全量备份</strong>（<code>fullFreq=86400</code>）；<code>AUTO</code> 模式按两个参数自动选择本次该做 FULL 还是 INCR</td></tr><tr><td>怎么备</td><td><code>AUTO</code> 模式：按间隔自动选择 <strong>FULL 全量</strong> 或 <strong>INCR 增量 oplog</strong>&lt;br/&gt;产物落盘 <code>/data/dbbak/mg/mongodump/</code>&lt;br/&gt;可选 gzip / zstd 压缩</td></tr></tbody></table><h3>备份执行流程</h3><ol><li><strong>巡检与角色判定</strong>：dbmon 周期巡检本机所有实例，读取 <code>cluster-config.yaml</code> 中 <code>backup.enable</code>，并通过 <code>rs.isMaster()</code> / <code>rs.conf()</code> 判断当前节点是否为 <strong>backup 节点</strong>。<strong>仅 backup 节点</strong>触发后续步骤。</li><li><strong>执行 mongodump</strong>：目标路径 <code>/data/dbbak/mg/mongodump/&lt;cluster&gt;/&lt;ip&gt;_&lt;port&gt;_&lt;yyyymmdd_hhmmss&gt;/</code>，连接串使用本地 <code>127.0.0.1:&lt;port&gt;</code>，readPreference 直连本节点，避免跨网络。</li><li><strong>打包 / 上报元数据</strong>：备份完成后压缩成 <code>.tar</code> 或 <code>.tar.gz</code>，并把<strong>备份元数据</strong>（集群、实例、起止时间、文件大小、状态）写到本地 report 目录，由 <strong>bkmonitorbeat</strong> 上报蓝鲸监控。</li><li><strong>过期清理</strong>：按 <code>backup.keepDays</code> 清理本机 <code>/data/dbbak/mg/mongodump/</code> 下的过期文件，避免占满磁盘；如对接对象存储/备份系统，则在上传成功后由保留策略统一清理。</li></ol><h3>增量备份策略（PITR）</h3><p>MongoDB 的增量备份不是“复制一份新增数据文件”，而是基于副本集 <strong>oplog</strong>：全备作为基准，后续周期性导出 <code>local.oplog.rs</code> 中的变更记录。PITR 回档时先恢复最近一次 FULL，再按时间顺序回放 INCR oplog 文件到目标时间点。</p><table class="tbl"><thead><tr><th>备份类型</th><th>内容</th><th>典型间隔</th><th>用途</th></tr></thead><tbody><tr><td><strong>FULL 全量</strong></td><td><code>mongodump</code> 导出的完整逻辑备份</td><td><code>fullFreq=86400</code>（约 1 天）</td><td>定点恢复的基准</td></tr><tr><td><strong>INCR 增量</strong></td><td><code>local.oplog.rs</code> 的 oplog 片段</td><td><code>incrFreq=3600</code>（约 1 小时）</td><td>叠加在 FULL 之后，恢复到更细时间点</td></tr><tr><td><strong>AUTO 自动</strong></td><td>由工具按 <code>fullFreq</code> / <code>incrFreq</code> 判断本次该做 FULL 还是 INCR</td><td>dbmon 默认调用模式</td><td>日常备份推荐方式</td></tr></tbody></table><p>增量备份产物命名遵循 DBM 规约：</p><pre><code class="lang-text">mongodump-{name}-FULL-{ip}-{port}-{ymdh}-{yyyymmddHHMMSS}.archive.gz
+mongodump-{name}-INCR-{ip}-{port}-{ymdh}-{i}-{yyyymmddHHMMSS}.oplog.rs.bson.gz</code></pre><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>增量备份依赖 oplog 窗口</strong></p><p>如果业务写入量很大、oplog 太小，导致上次增量点已经被覆盖，则 INCR 链会断，PITR 只能回到最近可用 FULL 或重新做全备。部署时的 <code>oplog_percent</code>、运行期的 <code>Oplog Window</code> 监控都需要一起关注。</p></div></div><div class="callout info"><div class="ico">💡</div><div class="body"><p>📌 <strong>分片集群注意</strong></p><p>分片集群需要每个 shard（以及 configsvr）各自形成 FULL + INCR 链。恢复到一致时间点时，必须使用同一目标时间组织各分片的增量回放；不要只恢复某一个 shard 的 INCR。</p></div></div><h3>关键参数（segment：<code>backup</code>）</h3><table class="tbl"><thead><tr><th>key</th><th>含义</th><th>典型值</th></tr></thead><tbody><tr><td><code>enable</code></td><td>是否开启日常备份；关闭后该实例完全跳过备份调度</td><td><code>true</code></td></tr><tr><td><code>fullFreq</code> / <code>full_freq</code></td><td>全量备份间隔；多数集群为每日一次</td><td><code>86400</code> 秒</td></tr><tr><td><code>incrFreq</code> / <code>incr_freq</code></td><td>增量备份间隔；用于 PITR oplog 链</td><td><code>3600</code> 秒</td></tr><tr><td><code>startTime</code> / <code>endTime</code></td><td>允许执行备份的<strong>窗口时段</strong>，错开业务高峰</td><td><code>02:00</code> - <code>06:00</code></td></tr><tr><td><code>keepDays</code></td><td>本机备份保留天数</td><td><code>3</code> - <code>7</code></td></tr><tr><td><code>gzip</code></td><td>是否开启 gzip 压缩，节省磁盘但增加 CPU</td><td><code>true</code></td></tr><tr><td><code>concurrency</code> / <code>numParallelCollections</code></td><td>mongodump 并发集合数，影响速度与负载</td><td><code>4</code></td></tr></tbody></table><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ 字段名以当前版本 <code>./bk-dbmon config get-all --port all</code> 输出为准；不同版本可能略有差异。</p></div></div><h3>产物目录与命名约定</h3><pre><code class="lang-text">/data/dbbak/mg/mongodump/
 └── &lt;cluster_domain&gt;/
     └── &lt;ip&gt;_&lt;port&gt;_&lt;yyyymmdd_hhmmss&gt;/
         ├── dump/                   # mongodump 输出（每库一个目录）
@@ -164,33 +39,8 @@ sh conn.sh all   &quot;db.adminCommand({ ping: 1 })&quot;</code></pre>
         │   ├── config/
         │   └── &lt;business_db&gt;/
         ├── meta.json               # 备份元数据（集群、实例、起止时间）
-        └── done.flag               # 完成标识（缺失则视为失败）</code></pre>
-<p>详细文件名解析参见 <a href="08-mongo-tools.html">第 8 章 · mongo-toolkit / 备份产物</a>。</p>
-<h3>跳过备份的两种方式</h3>
-<p><strong>A. 实例级关闭（dbmon CLI）</strong></p>
-<p>登录到实例所在机器，关闭 backup 段：</p>
-<pre><code class="language-bash">./bk-dbmon config set --port all \
-  -s backup -k enable -V false</code></pre>
-<p>适用：<strong>临时关停</strong>、紧急止损、<strong>LogDB</strong> 等无需备份的场景。</p>
-<p><strong>B. 集群级标签（DBM 平台）</strong></p>
-<p>在 DBM 集群属性 / Tag 中添加 <code>backup:no</code>，<strong>巡检与备份检查会一并跳过</strong>，适合长期不需备份的集群（数据可重建、纯日志库等）。</p>
-<div class="callout info"><div class="ico">💡</div><div class="body">⚠ <strong>常见踩坑</strong> - 副本集中<strong>没有 backup 节点</strong> → 全部 Secondary 都未触发备份。请确认至少 1 个节点 <code>priority=0 + hidden=true</code>。 - backup 节点磁盘空间不足 → mongodump 中途失败；建议 <code>/data/dbbak</code> 至少预留<strong>数据量 × 1.5</strong> 的空间。 - 备份时段与<strong>大表 TTL/索引重建</strong>重叠 → IO 争用导致超时；调整 <code>startTime</code> 错开。 - 关闭备份后忘记重新打开 → 监控会上报 <strong>&quot;备份长期缺失&quot;</strong> 告警；变更完毕请及时 <code>enable=true</code>。</div></div>
-<div class="callout info"><div class="ico">💡</div><div class="body">✅ <strong>查看备份是否成功</strong> 1. 登录 backup 节点机器，<code>ls /data/dbbak/mg/mongodump/</code> 查看当天产物与 <code>done.flag</code>； 2. 在 DBM 控制台 <strong>集群详情 → 备份记录</strong> 查看（数据来自 dbmon 上报）； 3. 实例机本地：<code>./bk-dbmon meta list --port all</code> 查看备份段最近一次执行状态。</div></div>
-</section>
-<section class="section" id="67-与监控排障的关系">
-  <h2><span class="ix">6.7</span>与监控、排障的关系</h2>
-<table class="tbl"><thead><tr><th>现象</th><th>排查路径</th></tr></thead><tbody>
-<tr><td>📊 <strong>监控无数据</strong></td><td>检查本机 <strong>bk-dbmon</strong> 是否运行；<code>dbmon-config.yaml</code> 中 <strong>bkmonitorbeat</strong> 路径与 <code>data_id</code> / <code>token</code> 是否与当前环境一致；检查 GSE / bkmonitorbeat 插件是否正常</td></tr>
-<tr><td>🔕 <strong>误报或维护窗口</strong></td><td>使用 <code>alarm shield</code> 屏蔽，结束后再 <code>unblock</code>（与平台升级脚本策略一致）</td></tr>
-<tr><td>🧹 <strong>实例已下架仍报端口</strong></td><td>尝试 <code>meta delete</code> 清理残留元数据</td></tr>
-<tr><td>📋 <strong>平台侧排障</strong></td><td>结合 <strong>工单详情</strong> 与 Job 日志中的 dbactuator 输出（<code>install_dbmon</code> / <code>InstallDBMon</code> 步骤）</td></tr>
-</tbody></table>
-</section>
-<section class="section" id="68-版本与介质">
-  <h2><span class="ix">6.8</span>版本与介质</h2>
-<p>bk-dbmon 安装包在流程中通过 <code>Package.get_latest_package(..., pkg_type=&quot;dbmon&quot;, db_type=MongoDB)</code> 选取（见 <code>get_pkg_info()</code>）。</p>
-<div class="callout info"><div class="ico">💡</div><div class="body">✅ <strong>固定版本场景</strong>：若需固定版本，应在 <strong>DBM 介质管理</strong> 中维护可用包，并与环境变更流程对齐。</div></div>
-</section>
+        └── done.flag               # 完成标识（缺失则视为失败）</code></pre><p>详细文件名解析参见 <a href="08-mongo-tools.html">第 8 章 · mongo-toolkit / 备份产物</a>。</p><h3>跳过备份</h3><p><strong>A. 实例级关闭（dbmon CLI）</strong></p><pre><code class="lang-bash">./bk-dbmon config set --port all \
+  -s backup -k enable -V false</code></pre><p>适用：<strong>临时关停</strong>、紧急止损、<strong>LogDB</strong> 等无需备份的场景。</p><p><strong>B. 集群级标签（DBM 平台）</strong></p><p>在 DBM 集群属性 / Tag 中添加 <code>backup:no</code>，<strong>巡检与备份检查会一并跳过</strong>，适合长期不需备份的集群（数据可重建、纯日志库等）。</p><h3>备份检查</h3><div class="callout tip"><div class="ico">✅</div><div class="body"><p>✅ <strong>查看备份是否成功</strong></p><ol><li>登录 backup 节点机器，<code>ls /data/dbbak/mg/</code> 查看当天产物与 <code>done.flag</code>。</li><li>在 DBM 控制台 <strong>集群详情 → 备份记录</strong> 查看（数据来自 dbmon 上报）。</li><li>实例机本地：<code>./bk-dbmon meta list --port all</code> 查看备份段最近一次执行状态。</li></ol></div></div><div class="callout warn"><div class="ico">⚠️</div><div class="body"><p>⚠ <strong>常见踩坑</strong></p><ul><li>backup 节点磁盘空间不足 → mongodump 中途失败；建议 <code>/data/dbbak</code> 至少预留<strong>数据量 × 1.5</strong> 的空间。</li><li>全备触发时间默认随机分布在 <code>backup.startTime ~ endTime</code> 窗口内（见上表"关键参数"行），便于错开同机房集中跑备份；若需要固定到具体小时点，需在 dbconfig 中显式收窄窗口。</li></ul></div></div></section><section class="section" id="6-7-排障速查"><h2><span class="ix">6.7</span>排障速查</h2><table class="tbl"><thead><tr><th>现象</th><th>排查路径</th></tr></thead><tbody><tr><td>监控无数据</td><td>检查本机 <strong>bk-dbmon</strong> 是否运行；<code>dbmon-config.yaml</code> 中 <strong>bkmonitorbeat</strong> 路径与 <code>data_id</code> / <code>token</code> 是否与当前环境一致；检查 GSE / bkmonitorbeat 插件是否正常</td></tr><tr><td>误报或维护窗口</td><td>使用 <code>alarm shield</code> 屏蔽，结束后再 <code>unblock</code></td></tr><tr><td>实例已下架仍报端口</td><td>尝试 <code>meta delete</code> 清理残留元数据</td></tr><tr><td>平台侧排障</td><td>结合 <strong>工单详情</strong> 与 Job 执行日志确认安装、启动和配置下发结果</td></tr><tr><td>备份长期缺失</td><td>先确认 backup 节点、<code>backup.enable</code>、备份窗口和 <code>/data/dbbak</code> 空间</td></tr></tbody></table></section><nav class="pager"><a href="05-mongosh.html"><span class="arrow">⬅</span><span><span class="lbl">PREV</span><span class="ttl">← 第 5 章 mongosh</span></span></a><a class="next" href="07-versions.html"><span><span class="lbl">NEXT</span><span class="ttl">第 7 章 版本与兼容性 →</span></span><span class="arrow">➡</span></a></nav>
   </main>
 </div>
 <script src="../assets/app.js?v=20260520c"></script>
