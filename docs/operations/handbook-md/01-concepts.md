@@ -38,8 +38,6 @@
 | `config server` | 集群元数据与 chunk 路由信息 | etcd / 元数据节点 |
 | `shard` | 数据分片，每个分片通常为 **副本集** | MySQL 分片实例 / Redis 分片 |
 
-> 🔗 元数据处理代码：`dbm-ui/backend/db_meta/api/cluster/mongocluster/handler.py` 中 `MongoClusterHandler`。
-
 ---
 
 ## 1.4 数据模型对照

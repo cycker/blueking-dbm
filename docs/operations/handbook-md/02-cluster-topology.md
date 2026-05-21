@@ -30,13 +30,13 @@
 > 🛡 **部署原则（蓝鲸 DBM 默认规范）**
 >
 > 除单节点测试场景外，**生产副本集至少 3 节点**：**m1、m2**（`priority=1`）+ **backup**（`priority=0`）。  
-> 平台初始化逻辑（`get_replicaset_init_kwargs`）对**除最后一个成员外**均赋 `priority=1`，**最后一个成员**（对应 `backup` 槽位）赋 `priority=0` + `hidden=true`。
+> 平台初始化逻辑对**除最后一个成员外**均赋 `priority=1`，**最后一个成员**（对应 `backup` 槽位）赋 `priority=0` + `hidden=true`。
 
 > 📌 **元数据角色名 vs MongoDB 运行时 Primary**
 >
 > - DBM 控制台里 **m1** 常标为「主」、**m2** 标为「从」，这是**命名槽位 / 域名规划**（`m1.*.db` 等多作集群入口），**不等于** m1 的 `priority` 必须高于 m2。
 > - **现网标准配置下 m1、m2 的 `priority` 均为 1**，谁当 Primary 由副本集**选举**决定；故障切换后 Primary 可能在 m1 或 m2 上。
-> - 首次 `rs.initiate` 时，执行 init 的节点可能**临时**被脚本 `priority+1` 以稳定首次选主（`initiate_replicaset`）；稳态配置仍以平台下发的 **m1/m2=1、backup=0** 为准。
+> - 首次 `rs.initiate` 时，执行 init 的节点可能**临时**被脚本 `priority+1` 以稳定首次选主；稳态配置仍以平台下发的 **m1/m2=1、backup=0** 为准。
 
 ### 节点角色矩阵（三节点标准形态）
 
@@ -66,23 +66,20 @@
 
 ## 2.2 节点命名规范
 
-蓝鲸 DBM 在元数据层为副本集每个成员定义了固定的**角色名（instance_role）**与**子域名前缀**，二者一一对应。代码常量见：
-
-- `backend/db_meta/enums/instance_role.py` 中的 `InstanceRole`
-- `backend/flow/consts.py` 中的 `MongoDBDomainPrefix`
+蓝鲸 DBM 在元数据层为副本集每个成员定义了固定的**角色名**与**子域名前缀**，二者一一对应。
 
 ```
 m1 (主槽位)   m2 (从槽位)    m3 (从槽位)    m4..m10 (扩展位)  backup (备份槽位)
 ```
 
-| 角色名 | InstanceRole 常量 | 子域名前缀 | 典型 priority | 说明 |
+| 角色名 | 角色常量 | 子域名前缀 | 典型 priority | 说明 |
 |--------|-------------------|------------|---------------|------|
 | `m1` | `MONGO_M1` | `m1.<set>.<app>.db` | **1** | 规划上的「主」槽位；**与 m2 同 priority**，运行时谁为 Primary 由选举决定 |
 | `m2 ~ m10` | `MONGO_M2 ~ MONGO_M10` | `m{2..10}.<set>.<app>.db` | **1**（可选举成员） | 普通从节点，可被选主、可承接读；`m4~m10` 为扩展位（5/7/9 节点架构） |
 | `backup` | `MONGO_BACKUP` | `backup.<set>.<app>.db` | **0** | `hidden=true`，专跑日常备份，不参与选主 |
 
 > 📌 **命名约束**
-> - 当前 DBM 每个副本集**最多支持 11 个成员**：`m1 + m2~m10 + backup`，对应 `calculate_cluster.py` 中 `domain_prefix` 的 11 个槽位。
+> - 当前 DBM 每个副本集**最多支持 11 个成员**：`m1 + m2~m10 + backup`。
 > - 子域名前缀和角色名严格一一对应，**不可自定义**；例如不能把 `m3` 写成 `m_3` 或 `node3`。
 > - 分片集群的 shard 内部同样沿用这套命名（每个 shard 是一个独立副本集）；config server 副本集成员同样用 `m1/m2/m3/backup`。
 > - 分片集群的接入层 `mongos` 不属于副本集成员，使用独立子域名 `mongos.<cluster>.<app>.db`。
@@ -126,7 +123,7 @@ m1 (priority=1)  ─  m2 (priority=1)  ─  backup (priority=0, hidden)
 
 - 选举仲裁需要奇数票，3 节点天然满足（m1、m2、backup 各 1 票）
 - **不要**误以为必须「m1 priority 高于 m2」；现网以 **双 1 + backup 0** 为主
-- 巡检要求：`set` 至少 3 个成员（`check_affinity` 中 `min_members=3`）
+- 巡检要求：`set` 至少 3 个成员
 
 > 🏷 标签：✅ `高可用` · ✅ `日常备份` · `性价比最佳`
 
@@ -145,9 +142,9 @@ m1  m2  m3  m4  ……  backup
 > 🏷 标签：`读扩展` · `跨城容灾` · ⚠ `上限 11`
 
 > ⚠ **蓝鲸 DBM 的硬性约束**
-> - 副本集成员数最多 **11 个**（`m1~m10` + `backup`），由代码 `domain_prefix` 数组写死。
+> - 副本集成员数最多 **11 个**（`m1~m10` + `backup`），由 DBM 元数据层固定。
 > - 除带 `single_node:true` 标签的测试集群外，每个副本集 / shard **必须 ≥ 3 个**成员，且至少包含 1 个 `backup` 节点。
-> - 分片集群中 `mongos` 接入层至少 **2 个**实例（`min_members=2`），避免单点。故障 mongos 可由 **DBHA** 从 DNS/CLB 摘除，详见 [第 14 章](14-dbha-autofix.md)。
+> - 分片集群中 `mongos` 接入层至少 **2 个**实例，避免单点。故障 mongos 可由 **DBHA** 从 DNS/CLB 摘除，详见 [第 14 章](14-dbha-autofix.md)。
 
 ---
 

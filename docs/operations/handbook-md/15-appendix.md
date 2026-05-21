@@ -8,16 +8,9 @@
 
 | 说明 | 路径 |
 | --- | --- |
-| 编排控制器 | `dbm-ui/backend/flow/engine/controller/mongodb.py` |
-| 场景与子流程 | `dbm-ui/backend/flow/engine/bamboo/scene/mongodb/` |
 | 节点执行（dbactuator） | `dbm-services/mongodb/db-tools/dbactuator/` |
 | bk-dbmon 进程与配置 | `dbm-services/mongodb/db-tools/dbmon/` |
-| 工单常量（TicketType） | `dbm-ui/backend/ticket/constants.py`（约 616~656 行） |
-| 工单 Builder（部署） | `backend/ticket/builders/mongodb/mongo_replicaset_apply.py` · `mongo_shard_apply.py` |
-| 升级链 | `flow/engine/bamboo/scene/mongodb/mongodb_upgrade_version.py` · `MONGODB_MAJOR_MINOR_UPGRADE_CHAIN` |
-| 元数据集群处理 | `backend/db_meta/api/cluster/mongocluster/handler.py` |
 | DBHA（mongos） | `dbm-services/common/dbha/ha-module/dbmodule/mongodb/` |
-| 故障自愈 | `backend/db_services/mongodb/autofix/` · `flow/.../mongodb_autofix.py` |
 
 > 📋 **排障原则**：日志与脚本细节随版本迭代；生产排障以 **工单详情 + Job 日志 + 集群监控（DBMon）** 三件套为准。
 
