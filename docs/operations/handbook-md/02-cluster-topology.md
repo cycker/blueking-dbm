@@ -72,7 +72,7 @@
 - `backend/flow/consts.py` 中的 `MongoDBDomainPrefix`
 
 ```
-m1 (Primary)  m2 (Secondary)  m3 (Secondary)  m4..m10 (扩展位)  backup (备份从)
+m1 (主槽位)   m2 (从槽位)    m3 (从槽位)    m4..m10 (扩展位)  backup (备份槽位)
 ```
 
 | 角色名 | InstanceRole 常量 | 子域名前缀 | 典型 priority | 说明 |
@@ -179,7 +179,7 @@ m1  m2  m3  m4  ……  backup
 
 > ⚠ **选型不确定时的建议**
 >
-> 优先选 **副本集**；确需水平分片再迁分片集群。详见 [§3.3 选型决策](./03-first-deploy.md)。
+> 优先选 **副本集**；确需水平分片再迁分片集群。分片集群额外要先决策 shard key，见下一节 [§2.5 Shard Key](#25-shard-key分片键)。
 
 ---
 

@@ -169,7 +169,7 @@ bk-dbmon 内置 **backup** 段，是 MongoDB 集群**日常备份的执行者**�
 | 维度 | 说明 |
 |------|------|
 | 谁来备份 | 副本集：**backup 节点** 独占执行<br/>分片集群：**每个 shard 的 backup 节点** + **configsvr 的 backup 节点** |
-| 什么时候备 | 每小时发起一次备份，其中一次是全量备份，其它时间为增量备份 |
+| 什么时候备 | 默认 **每小时一次增量备份**（`incrFreq=3600`），**每日一次全量备份**（`fullFreq=86400`）；`AUTO` 模式按两个参数自动选择本次该做 FULL 还是 INCR |
 | 怎么备 | `AUTO` 模式：按间隔自动选择 **FULL 全量** 或 **INCR 增量 oplog**<br/>产物落盘 `/data/dbbak/mg/mongodump/`<br/>可选 gzip / zstd 压缩 |
 
 ### 备份执行流程
@@ -260,7 +260,7 @@ mongodump-{name}-INCR-{ip}-{port}-{ymdh}-{i}-{yyyymmddHHMMSS}.oplog.rs.bson.gz
 > ⚠ **常见踩坑**
 >
 > - backup 节点磁盘空间不足 → mongodump 中途失败；建议 `/data/dbbak` 至少预留**数据量 × 1.5** 的空间。
-> - 全备发起时间目前不受控制 TODO: 受startTime参数控制
+> - 全备触发时间默认随机分布在 `backup.startTime ~ endTime` 窗口内（见上表"关键参数"行），便于错开同机房集中跑备份；若需要固定到具体小时点，需在 dbconfig 中显式收窄窗口。
 
 ---
 

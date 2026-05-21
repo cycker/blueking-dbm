@@ -317,16 +317,19 @@ mongodb://analytics:pwd@host1,host2,host3/?
   &maxPoolSize=20                  // 不要把从打满
 ```
 
-### 备份采集
+### 备份采集（直连 backup 节点）
+
+蓝鲸 DBM 的 backup 节点是 `hidden=true` 的成员，**驱动 SDAM 会主动把它从候选池剔除**，按 `readPreference` / `readPreferenceTags` 无论怎么写都路由不到。要让备份脚本走 backup 节点，必须 **直连 IP + `directConnection=true`**：
 
 ```
-mongodb://backup:pwd@host1,host2,host3/?
+mongodb://backup:pwd@backup_node_ip:27017/?
   authSource=admin
-  &replicaSet=rs0
-  &readPreference=secondary
-  &readPreferenceTags=role:backup     // 优先打 backup 节点
-  &readPreferenceTags=                // 兜底任意从
+  &directConnection=true              // 绕过拓扑发现，直连本机/指定节点
+  &socketTimeoutMS=600000             // 长 dump 防中断
+  &maxPoolSize=20
 ```
+
+> ⚠ `directConnection=true` 不能与多 host 种子列表 / `replicaSet=` 同用；如果你的脚本需要"普通成员中挑一个从"，请改用 `readPreference=secondary` + 不带 `directConnection`，但目标就**不会是 backup 节点**。bk-dbmon 内部也是按此规则直连本机 `127.0.0.1:<port>` 触发 mongodump，见 [第 6 章 §6.6](06-bk-dbmon.md)。
 
 > 📘 **相关章节**
 > ① [第 5 章 · mongosh 入门](05-mongosh.md) 有连接示范；

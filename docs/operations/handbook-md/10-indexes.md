@@ -387,7 +387,7 @@ of RAM. Add an index, or specify a smaller limit.
 ### 🔑 分片键 = 强制索引
 
 - shard key 必须有**对应索引**（Hashed 或 Range），否则 `shardCollection` 失败。
-- 蓝鲸 GCS 工单创建分片表时会**自动建好**。
+- 蓝鲸 DBM 工单创建分片表时会**自动建好**。
 
 ### 🚫 唯一约束 = 必含分片键
 

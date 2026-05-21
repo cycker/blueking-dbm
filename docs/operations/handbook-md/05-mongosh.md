@@ -272,8 +272,9 @@ rs.status()
     },
     {
       name: "10.0.0.3:27017",
-      stateStr: "ARBITER",
-      health: 1
+      stateStr: "SECONDARY",
+      health: 1,
+      optimeDate: ISODate("2026-05-20T07:49:55Z")
     }
   ],
   ok: 1
@@ -281,6 +282,8 @@ rs.status()
 ```
 
 重点看：`myState: 1` 表示当前节点是 PRIMARY，`stateStr` 表示成员角色，`health: 1` 表示成员健康。排查复制延迟时可对比各成员的 `optimeDate`。
+
+> 📌 蓝鲸 DBM 现网标准是 PSS（无仲裁），第 3 个成员通常是 `backup` 槽位（`hidden=true`、`priority=0`），在 `rs.status()` 中仍以 `SECONDARY` 呈现；详见 [第 2 章 · 集群拓扑](./02-cluster-topology.md)。
 
 ### 🧱 分片集群状态
 

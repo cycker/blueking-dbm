@@ -9,7 +9,7 @@
 
 ---
 
-## 9.1 工具家族总览
+## 8.1 工具家族总览
 
 | 工具 | 类别 | 典型用途 | 等价 MySQL 类比 |
 | --- | --- | --- | --- |
@@ -28,7 +28,7 @@
 
 ---
 
-## 9.2 mongodump · 逻辑备份
+## 8.2 mongodump · 逻辑备份
 
 `mongodump` 用于把数据导出为 **BSON**（文档原始二进制） + **metadata.json**（索引等元信息），目录结构为：
 
@@ -119,7 +119,7 @@ mongodump \
 
 ---
 
-## 9.3 mongorestore · 逻辑恢复
+## 8.3 mongorestore · 逻辑恢复
 
 `mongorestore` 是 `mongodump` 的镜像操作。基本流程：先恢复数据 → 再重建索引；如带 `--oplogReplay` 则会回放 oplog 实现一致性。
 
@@ -197,7 +197,7 @@ mongorestore --archive=/data/dbbak/full.archive --oplogReplay
 
 ---
 
-## 9.4 mongoexport / mongoimport · JSON/CSV 交换
+## 8.4 mongoexport / mongoimport · JSON/CSV 交换
 
 与 mongodump 不同：`mongoexport` 输出 **纯文本 JSON / CSV**，**会丢失 BSON 类型保真度**（如 `NumberLong`、`ObjectId` 在 v1 模式下变成字符串）。
 
@@ -242,7 +242,7 @@ mongoimport -d game -c users \
 
 ---
 
-## 9.5 mongostat / mongotop · 实时观测
+## 8.5 mongostat / mongotop · 实时观测
 
 用于「**登机即时看实例压力分布**」，特别是在告警未触达、监控大盘看不出来时。
 
@@ -276,7 +276,7 @@ mongotop --uri="mongodb://dba:pwd@1.1.1.1:27017/admin" 2
 
 ---
 
-## 9.6 bsondump / mongofiles · 文件级工具
+## 8.6 bsondump / mongofiles · 文件级工具
 
 ### 🔍 bsondump
 
@@ -301,7 +301,7 @@ mongofiles --uri=... -d gridfs delete big.zip
 
 ---
 
-## 9.7 备份策略与 DBM 命名规约
+## 8.7 备份策略与 DBM 命名规约
 
 蓝鲸 DBM 的 bk-dbmon 在 `/data/dbbak/mg/mongodump/` 下生成两类备份产物，文件名解析见 `dbm-services/mongodb/db-tools/mongo-toolkit-go/toolkit/pitr/filename.go`：
 
@@ -326,7 +326,7 @@ mongofiles --uri=... -d gridfs delete big.zip
 
 ---
 
-## 9.8 边界与官方文档入口
+## 8.8 边界与官方文档入口
 
 - 本章不覆盖：**物理快照（cp/rsync data 目录）、percona-backup-mongodb（PBM）、Atlas Cloud Backup**；如需自建快照请参考 [官方文件系统快照文档](https://www.mongodb.com/docs/manual/tutorial/backup-with-filesystem-snapshots/)。
 - **分片集群一致性备份**：mongodump 不能保证 mongos 视角的全局一致；若必须，需借助 PBM 或停 balancer + 同时刻 dump 各分片。

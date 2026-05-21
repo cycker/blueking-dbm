@@ -104,9 +104,11 @@
 | MongoDB 安装 DBMon | `MONGODB_INSTALL_DBMON` |
 | MongoDB 故障自愈 | `MONGODB_AUTOFIX` |
 
+> ⚠ **`MONGODB_INSTALL_DBMON` 的实际触发入口**：日常并非作为独立菜单暴露，bk-dbmon 的安装 / 更新走 §4.4 的「集群标准化」(`MONGODB_CLUSTER_STANDARDIZE`)；新部署、扩缩容、整机替换等场景会自动顺带安装，不必单独提单。详见 [第 6 章 §6.2](06-bk-dbmon.md)。
+
 > 🔗 **DBHA / 自愈**：mongos 接入层 DBHA 与 `MONGODB_AUTOFIX` 触发链路见 [第 14 章](14-dbha-autofix.md)。  
 > 🔗 **bk-dbmon 详解**（安装路径、启停、`meta`/`alarm`/`config`、与蓝鲸监控对接、Flow 入参）：见 [第 6 章](06-bk-dbmon.md)。
 
 ---
 
-[← 第 3 章 首次部署](03-first-deploy.md) | [↑ 返回目录](README.md) | [第 5 章 mongosh →](05-mongosh.md)
+[← 第 3 章 数据目录和配置文件](03-first-deploy.md) | [↑ 返回目录](README.md) | [第 5 章 mongosh →](05-mongosh.md)
