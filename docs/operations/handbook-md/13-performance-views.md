@@ -144,10 +144,10 @@ DBM 为 MongoDB 预置一组 **蓝鲸监控告警策略**。策略分两类：
 
 | 策略 | 监控项 | 阈值（摘要） | 级别 | 排障提示 |
 | --- | --- | --- | --- | --- |
-| MongoDB 主机 CPU 使用率 | `cpu_summary:usage` | ≥**90%**（致命）；≥**60%**（预警） | 1 / 2 | 对照 [§13.2](#132-副本集大盘--mongoreplicaset) OS 区 |
+| MongoDB 主机 CPU 使用率 | `cpu_summary:usage` | ≥**90%**（致命）；≥**60%**（预警） | 1 / 2 | 对照 [§13.2](#13-2-副本集大盘-mongoreplicaset) OS 区 |
 | MongoDB 主机内存使用率 | `mem:pct_used` | ≥**90%** | 2 | 备份/索引构建会抬内存，结合进程与 WT 面板 |
 | MongoDB 主机磁盘容量使用率 | `disk:in_use` | ≥**90%**（致命）；≥**80%**（预警） | 1 / 2 | 关注 `mongolog`、`/data/dbbak`、数据目录；见 [第 6 章](06-bk-dbmon.md) 磁盘说明 |
-| MongoDB 主机网络流量使用率 | `net:speed_recv/sent` | ≥**90%** | 2 | 与 [§13.2](#132-副本集大盘--mongoreplicaset) / [§13.3](#133-分片集群大盘--mongoshardedcluster) 流量面板对照 |
+| MongoDB 主机网络流量使用率 | `net:speed_recv/sent` | ≥**90%** | 2 | 与 [§13.2](#13-2-副本集大盘-mongoreplicaset) / [§13.3](#13-3-分片集群大盘-mongoshardedcluster) 流量面板对照 |
 | MongoDB 主机网络包量使用率 | `net:speed_packets_*` | ≥**90%** | 2 | 小包风暴、连接数突增时易触发 |
 | MongoDB 登录失败 critical 事件 | 事件 `mongo_login` | `warn_level` ∈ error/critical，计数 ≥1 | 1 | 账号密码、authSource、网络；见 [第 11 章](11-uri-readpref.md) |
 | MongoDB 重启 warning 事件 | 事件 `mongo_restart` | `warn_level=warning`，计数 ≥1 | 2 | 计划内重启也会告警；维护前用 **shield**（见下） |

@@ -133,9 +133,9 @@ def render_inline(text: str) -> str:
 
 # ---------- 块级解析 ---------- #
 def slugify(s: str) -> str:
-    """生成 section id：去掉空白 + 标点，保留中文/英文/数字/.-。"""
+    """生成 section id：去掉空白 + 标点，保留中文/英文/数字/-。"""
     s = s.strip().lower()
-    s = re.sub(r"[\s（）()【】《》『』、：:，,。.!！?？/]+", "-", s)
+    s = re.sub(r"[\s（）()【】《》『』〔〕、：:，,。.!！?？/&+*@#$%^~`\"'<>·\\]+", "-", s)
     s = re.sub(r"-+", "-", s).strip("-")
     return s or "section"
 
@@ -196,7 +196,7 @@ def parse_code_block(lines, i):
         j += 1
     code = "\n".join(buf)
     code_escaped = html_mod.escape(code, quote=False)
-    cls = f' class="lang-{lang}"' if lang else ""
+    cls = f' class="language-{lang}"' if lang else ""
     html = f"<pre><code{cls}>{code_escaped}</code></pre>"
     return html, j + 1  # 跳过结束围栏
 
@@ -452,15 +452,16 @@ def build_pager(pager_line: str) -> str:
     return "".join(out)
 
 
-def section_html(h2_title: str, body_lines):
+def section_html(h2_title: str, body_lines, chno: int):
     """把单个 ## section 渲染成 <section class="section">..."""
-    # 抽取标题前缀编号 N.M（若有）
-    m = re.match(r"^(\d+\.\d+)\s+(.*)$", h2_title)
+    # 抽取标题前缀编号：支持 N.M / N / A.1 / 7.0 等
+    m = re.match(r"^([A-Za-z\d]+(?:\.[A-Za-z\d]+)?)\s+(.*)$", h2_title)
     if m:
         ix = m.group(1)
         rest = m.group(2)
     else:
-        ix = "·"
+        # 对“案例总览/工单全景概览”等无显式编号的小节，回退显示章节号
+        ix = str(chno)
         rest = h2_title
     sid = slugify(h2_title)
     body_html = render_blocks(body_lines)
@@ -481,7 +482,7 @@ PAGE_TPL = """<!DOCTYPE html>
 <title>{title_doc} | MongoDB 手册</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="../assets/style.css?v=20260520c" />
+<link rel="stylesheet" href="../assets/style.css?v=20260521b" />
 </head>
 <body>
 <div class="layout">
@@ -492,7 +493,7 @@ PAGE_TPL = """<!DOCTYPE html>
 {lead_block}{overview_block}{sections_html}{pager_html}
   </main>
 </div>
-<script src="../assets/app.js?v=20260520c"></script>
+<script src="../assets/app.js?v=20260521b"></script>
 <script>HandbookInit({{ activeId:'ch{chno02}' }});</script>
 </body>
 </html>
@@ -504,13 +505,14 @@ def convert_one(md_path: str, html_path: str, chno: int):
         md = f.read()
     title, lead_html, overview_html, sections, pager_html = split_top(md)
     if not title:
-        title = f"第 {chno} 章"
-    short = CHAPTER_SHORT.get(chno, title)
-    title_doc = f"第 {chno} 章 · {short}"
+        short = CHAPTER_SHORT.get(chno, f"第 {chno} 章")
+        title = f"第 {chno} 章 · {short}"
+    # 浏览器 <title> 与页面 <h1> 保持一致：均使用 md H1
+    title_doc = title
 
     lead_block = f'    <p class="page-lead">{lead_html}</p>\n' if lead_html else ""
     overview_block = overview_html or ""
-    sec_html = "".join(section_html(h, b) for (h, b) in sections)
+    sec_html = "".join(section_html(h, b, chno) for (h, b) in sections)
 
     page = PAGE_TPL.format(
         title_doc=html_mod.escape(title_doc, quote=False),

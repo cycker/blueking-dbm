@@ -49,7 +49,7 @@
 | 维度 | GCS 存量 2.4 | 已迁入 DBM 的集群 |
 | --- | --- | --- |
 | **配置形态** | 多为 INI `logpath` / `nssize` 等（见 [第 9 章 · 日志 §9.3](09-mongodb-logs.md)） | 3.0+ YAML `mongod.conf`，由 dbconfig 模板下发 |
-| **部署 / 扩容** | GCS 安装、单进程回档等单据 | `MONGODB_REPLICASET_APPLY` 等 DBM 工单（见 [第 4 章 §4.1](04-tickets.md#41-部署与生命周期6-项)；节点本地目录形态见 [第 3 章](03-first-deploy.md)） |
+| **部署 / 扩容** | GCS 安装、单进程回档等单据 | `MONGODB_REPLICASET_APPLY` 等 DBM 工单（见 [第 4 章 §4.1](04-tickets.md#4-1-部署与生命周期-6-项)；节点本地目录形态见 [第 3 章](03-first-deploy.md)） |
 | **备份回档** | GCS 全量 / 部分回档流程 | bk-dbmon + mongo-toolkit / 工单回档（[第 6 章](06-bk-dbmon.md)、案例 #17） |
 | **版本策略** | **禁止新装 2.4**；存量只做收缩与迁移 | 新环境走 DBM 支持版本（通常 ≥ 4.x） |
 
@@ -240,7 +240,7 @@
 2. 阅读驱动该大版本的 **Release Notes / Upgrade Guide**（API 删除、默认 URI 参数变化）。
 3. 在测试环境验证：**连接串**（`replicaSet`、`authSource`、`readPreference`）、**事务**、**聚合管道**、**批量写**、**Change Stream**（如有）。
 4. 观察应用日志是否出现 **`not primary`**、**`KeyNotFound` 211**、**`Wire version`** 等（部分与驱动过旧或角色配置有关，案例见 [第 12 章](12-cases.md)）。
-5. 与 [§7.6 升级前检查清单](#76-升级前检查清单通用--checklist) 合并执行，勿只做二进制升级不做应用回归。
+5. 与 [§7.6 升级前检查清单](#7-6-升级前检查清单-通用-✅-checklist) 合并执行，勿只做二进制升级不做应用回归。
 
 ### 7.7.6 蓝鲸 DBM 现网额外注意
 

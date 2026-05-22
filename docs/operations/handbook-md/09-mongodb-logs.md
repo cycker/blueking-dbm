@@ -9,7 +9,7 @@
 
 | 名称 | 本质 | 典型路径 / 位置 | 运维用途 |
 | --- | --- | --- | --- |
-| **Server Log（诊断日志）** | mongod/mongos 进程写的文本或 JSON 日志 | DBM 默认见 [§9.2](#92-蓝鲸-dbm-默认路径) | 启动失败、复制、选举、连接、断言、部分慢操作摘要 |
+| **Server Log（诊断日志）** | mongod/mongos 进程写的文本或 JSON 日志 | DBM 默认见 [§9.2](#9-2-蓝鲸-dbm-默认路径) | 启动失败、复制、选举、连接、断言、部分慢操作摘要 |
 | **oplog（复制日志）** | 副本集变更流；**角色上相当于 MySQL 的 binlog** | `local.oplog.rs`（capped 集合） | 从节点复制、增量备份、PITR；与 server log **无关** |
 | **Profiler / 慢查询** | 超过阈值的操作用文档或日志行记录 | `system.profile` 集合 + server log 中的 `COMMAND`/`planSummary` 等 | 性能排障、索引设计（见 [第 10 章 · 索引](10-indexes.md)） |
 
@@ -153,7 +153,7 @@ logappend=true
 | **Profiler 级别** | `db.setProfilingLevel(0|1|2)`      | 同左                         | 同左              | `1`=只记慢操作；`2`=全量（**生产慎用**）          |
 | **落库位置**        | `system.profile`（固定大小 capped）      | 同左                         | 同左              | 与 server log 中 Slow query **可能重复**  |
 | **分片 / mongos** | mongos 上慢查询行为与 mongod 不同           | 4.2+ 分片事务慢日志更复杂            | 以当前版本 manual 为准 | 案例见 [第 12 章](12-cases.md) 慢查询条目     |
-| **索引隐藏**        | 无                                  | 4.4+ `hiddenIndex` 影响 plan | 6.0+ 计划器变更      | 慢日志里关注 `planSummary` 是否为 **COLLSCAN**，见 [§9.8](#98-慢日志中的-collscan全表扫描) |
+| **索引隐藏**        | 无                                  | 4.4+ `hiddenIndex` 影响 plan | 6.0+ 计划器变更      | 慢日志里关注 `planSummary` 是否为 **COLLSCAN**，见 [§9.8](#9-8-慢日志中的-collscan-全表扫描) |
 
 
 **推荐生产组合**（DBM 场景）：
@@ -244,7 +244,7 @@ I COMMAND [conn190722] command game.$cmd command: delete { delete: "battle_data_
 #### 排障时怎么用
 
 1. 先确认是慢查询行：`Slow query` / `id:51803` / `durationMillis` 超阈值。
-2. 用 **③** 判断是读还是写：`find`/`aggregate` → 索引与 [§9.8 COLLSCAN](#98-慢日志中的-collscan全表扫描)；`update`/`delete` → 锁、`writeConflicts`、批量大小。
+2. 用 **③** 判断是读还是写：`find`/`aggregate` → 索引与 [§9.8 COLLSCAN](#9-8-慢日志中的-collscan-全表扫描)；`update`/`delete` → 锁、`writeConflicts`、批量大小。
 3. 看到 **`type: "command"`** 不要跳过，展开 `command` 或文本里 `command:` 后的第一个动词。
 4. 分片集群：同一逻辑查询在 **mongos** 与 **shard** 上各打一条，需结合 `nShards`、`mongos` 字段区分。
 
@@ -339,7 +339,7 @@ mongos / 分片场景：explain 需看各 `shards.*` 子计划，单分片 COLLS
 
 | 关键字 / 模式 | 可能原因 | 建议动作 |
 | --- | --- | --- |
-| **`COLLSCAN`** / `docsExamined` 极大 | 全表扫描、索引未命中 | 见 [§9.8](#98-慢日志中的-collscan全表扫描)；`explain` + [第 10 章](10-indexes.md) |
+| **`COLLSCAN`** / `docsExamined` 极大 | 全表扫描、索引未命中 | 见 [§9.8](#9-8-慢日志中的-collscan-全表扫描)；`explain` + [第 10 章](10-indexes.md) |
 | `IXSCAN` 但仍慢 | 索引选择性差、内存排序 | 看 `docsExamined` vs `nreturned`；查 `SORT` / `SORT_KEY_GENERATOR` |
 | `replSetStepDown` / `election` | 选主、stepDown | 对照拓扑与 priority；见 [第 2 章](02-cluster-topology.md) |
 | `Rollback` / `recovering` | 回滚、节点追赶 | 查 oplog 窗口、磁盘与网络；勿贸然 `rs.reconfig` |

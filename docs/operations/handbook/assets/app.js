@@ -39,6 +39,17 @@
     return href;
   }
 
+  // 为章节链接附加 deck=1（用于跨章保持 PPT 模式）
+  function withDeckParam(href){
+    const [baseAndQuery, hash = ''] = href.split('#');
+    const [base, query = ''] = baseAndQuery.split('?');
+    const params = new URLSearchParams(query);
+    params.set('deck', '1');
+    const qs = params.toString();
+    const out = qs ? `${base}?${qs}` : base;
+    return hash ? `${out}#${hash}` : out;
+  }
+
   // 注入顶部栏
   function renderTopbar(opts){
     const fromIndex = !!opts.fromIndex;
@@ -243,7 +254,7 @@
     const meta = CHAPTERS.find(c=>c.id===activeId);
     const chapterIndex = CHAPTERS.findIndex(c=>c.id===activeId);
     const nextChapter = chapterIndex >= 0 ? CHAPTERS[chapterIndex + 1] : null;
-    const nextHref = nextChapter ? fixHref(nextChapter.href, false) : '';
+    const nextHref = nextChapter ? withDeckParam(fixHref(nextChapter.href, false)) : '';
     const title = main.querySelector('.page-title')?.textContent?.trim() || (meta?.title || '');
     const lead  = main.querySelector('.page-lead')?.textContent?.trim() || '';
     const sections = Array.from(main.querySelectorAll('.section'));
@@ -268,20 +279,61 @@
       </div>`;
     stage.appendChild(cover);
 
-    // 内容页
+    // 内容页：默认每个 .section 一页；若 section 内有多个 h3，则自动拆分多页
     sections.forEach((sec, i)=>{
-      const slide = document.createElement('div');
-      slide.className = 'slide content';
-      const clone = sec.cloneNode(true);
-      slide.innerHTML = `
-        <div class="slide-tag">第 ${meta?.num || ''} 章 · ${i+1}/${sections.length}</div>
-        <div class="slide-body"></div>
-        <div class="slide-foot">
-          <span class="brand-mini"><span class="dot"></span>${title}</span>
-          <span>← / → 翻页</span>
-        </div>`;
-      slide.querySelector('.slide-body').appendChild(clone);
-      stage.appendChild(slide);
+      const h2 = sec.querySelector(':scope > h2');
+      const children = Array.from(sec.children);
+      const h3Indexes = children
+        .map((el, idx) => ({ el, idx }))
+        .filter(x => x.el.tagName === 'H3')
+        .map(x => x.idx);
+
+      const parts = [];
+      if (!h3Indexes.length) {
+        parts.push({
+          title: '',
+          nodes: children.filter(el => el !== h2),
+        });
+      } else {
+        const contentStart = h2 ? children.indexOf(h2) + 1 : 0;
+        const firstH3 = h3Indexes[0];
+        if (firstH3 > contentStart) {
+          parts.push({
+            title: '概览',
+            nodes: children.slice(contentStart, firstH3),
+          });
+        }
+        h3Indexes.forEach((startIdx, idx2) => {
+          const endIdx = idx2 + 1 < h3Indexes.length ? h3Indexes[idx2 + 1] : children.length;
+          const h3 = children[startIdx];
+          parts.push({
+            title: h3?.textContent?.trim() || `子节 ${idx2 + 1}`,
+            nodes: children.slice(startIdx, endIdx),
+          });
+        });
+      }
+
+      parts.forEach((part, partIdx) => {
+        const slide = document.createElement('div');
+        slide.className = 'slide content';
+        const secClone = document.createElement('section');
+        secClone.className = sec.className || 'section';
+        if (sec.id) secClone.id = sec.id + (parts.length > 1 ? `-p${partIdx + 1}` : '');
+        if (h2) secClone.appendChild(h2.cloneNode(true));
+        part.nodes.forEach(node => secClone.appendChild(node.cloneNode(true)));
+
+        const partMark = parts.length > 1 ? ` · 分页 ${partIdx + 1}/${parts.length}` : '';
+        const partTitle = parts.length > 1 ? ` · ${part.title}` : '';
+        slide.innerHTML = `
+          <div class="slide-tag">第 ${meta?.num || ''} 章 · ${i+1}/${sections.length}${partMark}${partTitle}</div>
+          <div class="slide-body"></div>
+          <div class="slide-foot">
+            <span class="brand-mini"><span class="dot"></span>${title}</span>
+            <span>← / → 翻页</span>
+          </div>`;
+        slide.querySelector('.slide-body').appendChild(secClone);
+        stage.appendChild(slide);
+      });
     });
 
     // 章末
@@ -313,6 +365,7 @@
     if (!slides.length) return;
     document.body.classList.add('deck-mode');
     document.body.appendChild(deckEl);
+    try { sessionStorage.setItem('handbook_deck_autostart', '1'); } catch(_){}
 
     // 进度条
     const prog = document.createElement('div');
@@ -525,6 +578,7 @@
     document.querySelector('.deck-hint')?.remove();
     document.querySelector('.deck-exit')?.remove();
     document.querySelector('.deck-theme')?.remove();
+    try { sessionStorage.removeItem('handbook_deck_autostart'); } catch(_){}
     if (window._deckOnKey) document.removeEventListener('keydown', window._deckOnKey);
     if (window._deckOnResize){ window.removeEventListener('resize', window._deckOnResize); window._deckOnResize = null; }
     if (document.fullscreenElement) document.exitFullscreen?.();
@@ -536,7 +590,7 @@
     btn.className = 'deck-launch';
     btn.innerHTML = '🎬 进入 PPT 模式';
     btn.title = '以幻灯片方式浏览本章 (按 P 也可启动)';
-    btn.onclick = ()=>{
+    const launchDeck = ()=>{
       // 如果是首页（自定义 deck 已经在 DOM 中），则用 page 自带的 deck
       const existing = document.querySelector('#homeDeck');
       let deck;
@@ -549,6 +603,7 @@
       if (!deck) return;
       deckMount(deck);
     };
+    btn.onclick = launchDeck;
     document.body.appendChild(btn);
 
     // 按 P 快捷启动
@@ -557,6 +612,14 @@
       if (document.body.classList.contains('deck-mode')) return;
       if (e.key==='p' || e.key==='P'){ btn.click(); }
     });
+
+    // 通过 ?deck=1 或会话标记进入页面时自动进入 PPT 模式
+    const sp = new URLSearchParams(window.location.search);
+    let fromSession = false;
+    try { fromSession = sessionStorage.getItem('handbook_deck_autostart') === '1'; } catch(_){}
+    if ((sp.get('deck') === '1' || fromSession) && !document.body.classList.contains('deck-mode')){
+      launchDeck();
+    }
   }
 
   // 自动初始化
