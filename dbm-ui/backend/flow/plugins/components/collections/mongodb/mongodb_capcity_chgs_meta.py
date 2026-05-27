@@ -11,7 +11,7 @@ specific language governing permissions and limitations under the License.
 import logging
 import logging.config
 import time
-import traceback
+import uuid
 from typing import List
 
 from django.db import transaction
@@ -23,6 +23,7 @@ from backend.db_meta.enums import ClusterType, InstanceRole, InstanceStatus, Mac
 from backend.db_meta.models import Cluster, Machine, StorageInstance, StorageInstanceTuple
 from backend.flow.plugins.components.collections.common.base_service import BaseService
 from backend.flow.utils.mongodb.mongodb_module_operate import MongoDBCCTopoOperator
+from backend.utils.redis import RedisConn
 
 logger = logging.getLogger("flow")
 
@@ -46,54 +47,120 @@ class MongoDBCapcityMetaService(BaseService):
 
     """
 
+    LOCK_TTL_SECONDS = 300
+    MAX_RETRY_TIMES = 10
+    MAX_EXECUTE_ATTEMPTS = MAX_RETRY_TIMES + 1
+    LOCK_KEY_PREFIX = "dbm:mongodb:capacity_meta:host"
+    REDIS_LOCK_RELEASE_LUA = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+else
+    return 0
+end
+"""
+
+    @classmethod
+    def _build_host_lock_keys(cls, kwargs: dict) -> List[str]:
+        host_ips = set()
+        for item in kwargs.get("mongodb", []):
+            if item.get("ip"):
+                host_ips.add(item["ip"])
+            target = item.get("target") or {}
+            if target.get("ip"):
+                host_ips.add(target["ip"])
+
+        return [
+            "{}:{}:{}:{}".format(cls.LOCK_KEY_PREFIX, kwargs["bk_biz_id"], kwargs["cluster_id"], ip)
+            for ip in sorted(host_ips)
+        ]
+
+    @classmethod
+    def _release_host_locks(cls, lock_keys: List[str], lock_value: str):
+        if not lock_keys:
+            return
+
+        release_script = RedisConn.register_script(cls.REDIS_LOCK_RELEASE_LUA)
+        for lock_key in lock_keys:
+            try:
+                release_script(keys=[lock_key], args=[lock_value])
+            except Exception:  # pylint: disable=broad-except
+                logger.warning("failed to release mongo meta lock key=%s", lock_key, exc_info=True)
+
+    @classmethod
+    def _acquire_host_locks(cls, kwargs: dict):
+        lock_keys = cls._build_host_lock_keys(kwargs)
+        lock_value = str(uuid.uuid4())
+        acquired_keys = []
+
+        for lock_key in lock_keys:
+            locked = RedisConn.set(lock_key, lock_value, nx=True, ex=cls.LOCK_TTL_SECONDS)
+            if not locked:
+                cls._release_host_locks(acquired_keys, lock_value)
+                raise Exception("mongo meta host lock busy, lock_key={}".format(lock_key))
+            acquired_keys.append(lock_key)
+        return lock_keys, lock_value
+
+    def _execute_meta_change(self, kwargs: dict):
+        mongo_cluster = Cluster.objects.get(bk_biz_id=kwargs["bk_biz_id"], id=kwargs["cluster_id"])
+        # 仅支持 MongoDB 实例级的容量变更
+        if kwargs.get("mongodb"):
+            logger.info(
+                "mongo cluster capcity specs changes %s mongodb: %s",
+                mongo_cluster.immute_domain,
+                kwargs.get("mongodb"),
+            )
+            self.mongdb_instance_spec_modify(
+                mongo_cluster,
+                kwargs.get("mongodb"),
+                MachineType.MONGODB.value,
+                kwargs.get("created_by"),
+            )
+        else:
+            raise Exception("unexpected inputs by cluster specs changs. {}".format(kwargs))
+
     def _execute(self, data, parent_data) -> bool:
         kwargs = data.get_one_of_inputs("kwargs")
+        bk_biz_id = kwargs.get("bk_biz_id")
+        cluster_id = kwargs.get("cluster_id")
+        mongodb_items = kwargs.get("mongodb") or []
+        total_attempts = self.MAX_EXECUTE_ATTEMPTS
 
-        try:
-            mongo_cluster = Cluster.objects.get(bk_biz_id=kwargs["bk_biz_id"], id=kwargs["cluster_id"])
-
-            # 仅支持 MongoDB 实例级的容量变更
-            if kwargs.get("mongodb"):
-                logger.info(
-                    "mongo cluster capcity specs changes {} mongodb : {} ".format(
-                        mongo_cluster.immute_domain, kwargs.get("mongodb")
-                    )
-                )
-                self.mongdb_instance_spec_modify(
-                    mongo_cluster,
-                    kwargs.get("mongodb"),
-                    MachineType.MONGODB.value,
-                    kwargs.get("created_by"),
-                )
-            else:
-                raise Exception("unexpected inputs by cluster specs changs. {}".format(kwargs))
-        except Exception as e:
-            logger.error(traceback.format_exc())
-            logger.error("cluster specs changs 4 meta fail, {}error:{}".format(kwargs, str(e)))
-            # 5秒后重试一次
-            time.sleep(5)
+        for index in range(total_attempts):
+            lock_keys = []
+            lock_value = ""
+            attempt = index + 1
+            log_context = "bk_biz_id={}, cluster_id={}, mongodb_items={}, attempt={}/{}".format(
+                bk_biz_id, cluster_id, len(mongodb_items), attempt, total_attempts
+            )
             try:
-                mongo_cluster = Cluster.objects.get(bk_biz_id=kwargs["bk_biz_id"], id=kwargs["cluster_id"])
-
-                # 仅支持 MongoDB 实例级的容量变更
-                if kwargs.get("mongodb"):
-                    logger.info(
-                        "mongo cluster capcity specs changes {} mongodb : {} ".format(
-                            mongo_cluster.immute_domain, kwargs.get("mongodb")
-                        )
+                lock_keys, lock_value = self._acquire_host_locks(kwargs)
+                self._execute_meta_change(kwargs)
+                logger.info(
+                    "mongo capacity meta update succeeded, %s, lock_keys=%s",
+                    log_context,
+                    len(lock_keys),
+                )
+                return True
+            except Exception as err:
+                if index < total_attempts - 1:
+                    logger.warning(
+                        "mongo capacity meta update failed, will retry in 5s, %s, error=%s",
+                        log_context,
+                        str(err),
                     )
-                    self.mongdb_instance_spec_modify(
-                        mongo_cluster,
-                        kwargs.get("mongodb"),
-                        MachineType.MONGODB.value,
-                        kwargs.get("created_by"),
-                    )
-            except Exception as e:
-                logger.error(traceback.format_exc())
-                logger.error("cluster specs changs 4 meta fail, {}error:{}".format(kwargs, str(e)))
+                    time.sleep(5)
+                    continue
+                logger.error(
+                    "mongo capacity meta update failed after all retries, %s, error=%s",
+                    log_context,
+                    str(err),
+                    exc_info=True,
+                )
                 return False
-        logger.info("cluster specs changs 4 meta successfully {}".format(kwargs))
-        return True
+            finally:
+                self._release_host_locks(lock_keys, lock_value)
+
+        return False
 
     # mongdb/mongo_cofig 替换
     @transaction.atomic
@@ -152,6 +219,20 @@ class MongoDBCapcityMetaService(BaseService):
 
     @transaction.atomic
     def mongo_package_meta(self, cluster, rep_insts, created_by):
+        """
+        Rewire metadata from old mongodb instances to new ones during capacity replace.
+
+        Steps per replacement pair:
+        1. Mark old storage instance as UNAVAILABLE.
+        2. Copy role/cluster attributes to new storage instance and its machine.
+        3. Move cluster relation and bind entries from old instance to new instance.
+        4. Rebuild topology relations:
+           - M1: proxy links (for sharded mongodb), setdtl master reference, tuple ejector.
+           - Slave: tuple receiver.
+        5. Transfer new instances to target CC module after all pairs are processed.
+
+        Wrapped by transaction.atomic to keep metadata changes consistent.
+        """
         new_objs, ins_is_increment = [], False
         for inst_pair in rep_insts:
             old_ip, old_port = inst_pair["old"]["ip"], inst_pair["old"]["port"]

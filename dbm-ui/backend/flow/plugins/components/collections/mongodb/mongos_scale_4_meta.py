@@ -55,9 +55,25 @@ class MongosScaleMetaService(BaseService):
 
     def _execute(self, data, parent_data) -> bool:
         kwargs = data.get_one_of_inputs("kwargs")
+        bk_biz_id = kwargs.get("bk_biz_id")
+        cluster_id = kwargs.get("cluster_id")
+        mongos_add = kwargs.get("mongos_add") or []
+        mongos_del = kwargs.get("mongos_del") or []
+        logger.info(
+            "start mongos meta scale, bk_biz_id=%s, cluster_id=%s, add_count=%s, del_count=%s",
+            bk_biz_id,
+            cluster_id,
+            len(mongos_add),
+            len(mongos_del),
+        )
 
         try:
             mongo_cluster = Cluster.objects.get(bk_biz_id=kwargs["bk_biz_id"], id=kwargs["cluster_id"])
+            logger.info(
+                "load mongo cluster for mongos meta scale, immute_domain=%s, cluster_type=%s",
+                mongo_cluster.immute_domain,
+                mongo_cluster.cluster_type,
+            )
             if mongo_cluster.cluster_type != ClusterType.MongoShardedCluster.value or (
                 not kwargs.get("mongos_add") and not kwargs.get("mongos_del")
             ):
@@ -90,6 +106,11 @@ class MongosScaleMetaService(BaseService):
                 old_proxies = []
                 for mongos in kwargs.get("mongos_del"):
                     old_proxies.extend([{"ip": mongos["ip"], "port": port} for port in mongos_ports])
+                logger.info(
+                    "prepare decommission mongos proxies, immute_domain=%s, proxy_count=%s",
+                    mongo_cluster.immute_domain,
+                    len(old_proxies),
+                )
                 # # 删除老 mongos
                 api.cluster.nosqlcomm.decommission_proxies(mongo_cluster, proxies=old_proxies, is_all=False)
 
@@ -97,7 +118,13 @@ class MongosScaleMetaService(BaseService):
             logger.error(traceback.format_exc())
             logger.error("scale mongos 4 cluster 4 meta fail, {}error:{}".format(kwargs, str(e)))
             return False
-        logger.info("scale mongos 4 cluster 4 meta successfully {}".format(kwargs))
+        logger.info(
+            "finish mongos meta scale, bk_biz_id=%s, cluster_id=%s, add_count=%s, del_count=%s",
+            bk_biz_id,
+            cluster_id,
+            len(mongos_add),
+            len(mongos_del),
+        )
         return True
 
     # mongos(proxy) 扩容

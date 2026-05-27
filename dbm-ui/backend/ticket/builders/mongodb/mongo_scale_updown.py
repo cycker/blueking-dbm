@@ -13,7 +13,8 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 
 from backend.configuration.constants import AffinityEnum
-from backend.db_meta.models import AppCache, Cluster
+from backend.db_meta.enums import MachineType
+from backend.db_meta.models import AppCache, Cluster, StorageInstance
 from backend.db_services.dbbase.constants import IpSource
 from backend.flow.engine.controller.mongodb import MongoDBController
 from backend.ticket import builders
@@ -71,6 +72,17 @@ class MongoDBScaleUpDownFlowParamBuilder(builders.FlowParamBuilder):
 
 
 class MongoDBScaleUpDownResourceParamBuilder(BaseMongoDBOperateResourceParamBuilder):
+    @staticmethod
+    def get_cluster_exclusive_hosts(cluster: Cluster):
+        """Collect current mongodb hosts as affinity exclusion references."""
+        machines = [
+            inst.machine
+            for inst in StorageInstance.objects.select_related("machine").filter(
+                cluster=cluster, machine_type=MachineType.MONGODB.value
+            )
+        ]
+        return list({machine.bk_host_id: machine for machine in machines}.values())
+
     def format(self):
         # 获取每个集群的分片数和节点数，以此作为mongodb的资源申请规格
         for info in self.ticket_data["infos"]:
@@ -79,12 +91,13 @@ class MongoDBScaleUpDownResourceParamBuilder(BaseMongoDBOperateResourceParamBuil
             self.format_mongo_resource_spec(resource_spec, shard_machine_group, shard_node_count)
             cluster = Cluster.objects.get(id=info["cluster_id"])
             tolerance = get_mongodb_cluster_tolerance(cluster.disaster_tolerance_level, "mongodb")
+            exclusive_hosts = self.get_cluster_exclusive_hosts(cluster)
             for role in info["resource_spec"]:
                 self.patch_common_affinity(
                     info,
                     role=role,
                     cluster=cluster,
-                    exclusive_hosts=[],
+                    exclusive_hosts=exclusive_hosts,
                     tolerance=tolerance,
                 )
 
