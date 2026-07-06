@@ -18,7 +18,6 @@ import uuid
 from collections import defaultdict
 from datetime import timedelta
 
-from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
 from django.db.models import Q
 from django.utils import timezone
 
@@ -26,10 +25,12 @@ from backend import env
 from backend.components import BKMonitorV3Api
 from backend.db_meta.enums import ClusterType
 from backend.db_meta.enums.instance_status import MongoDBStorageInstanceStatus
-from backend.db_meta.models import Cluster, MongoDBStorageInstanceExt, StorageInstance
+from backend.db_meta.models import MongoDBStorageInstanceExt, StorageInstance
 from backend.db_periodic_task.local_tasks.db_meta.constants import UNIFY_QUERY_PARAMS
 from backend.db_periodic_task.local_tasks.mongodb_tasks.report_op import RecordBatchOps, dev_debug
+from backend.db_report.enums import ReportStateType
 from backend.db_report.enums.mongodb_check_sub_type import StorageInstanceStatusCheckSubType
+from backend.db_report.models.monogdb_check_report import MongodbBackupCheckReport
 from backend.db_report.repo.task_record_repo import get_report_day_from_time
 from backend.utils.redis import RedisConn
 
@@ -39,6 +40,18 @@ logger = logging.getLogger("root")
 SYNC_INSTANCE_STATUS_LOCK_KEY = "SyncStorageInstanceStatusTask:lock"
 SYNC_INSTANCE_STATUS_LOCK_TIMEOUT = 300  # 5 分钟
 SYNC_INSTANCE_STATUS_INIT_EXT_TABLE_FLAG_KEY = "SyncStorageInstanceStatusTask:init_ext_table:done"
+SYNC_INSTANCE_STATUS_DELETE_OLD_RECORD_FLAG_KEY = "SyncStorageInstanceStatusTask:delete_old_record:last_day"
+DEFAULT_FETCH_METRIC_BATCH_SIZE = 50
+SHARD_METRIC_BATCH_SIZE = 30
+EXT_BULK_UPDATE_FIELDS = ["update_at", "state_code", "state", "shard_name"]
+ABNORMAL_STATE_CODES = frozenset(
+    {
+        MongoDBStorageInstanceStatus.DOWN.value,
+        MongoDBStorageInstanceStatus.FATAL.value,
+        MongoDBStorageInstanceStatus.UNKNOWN.value,
+        MongoDBStorageInstanceStatus.REMOVED.value,
+    }
+)
 
 # Lua: 仅当 value 匹配时续期，避免误续其他实例的锁
 REDIS_LOCK_RENEW_LUA = """
@@ -94,6 +107,97 @@ def _extract_datapoint_value(item: dict):
     return datapoints[0][0]
 
 
+def _parse_instance_addr(addr: str) -> tuple[str, int] | None:
+    if not is_valid_instance_addr(addr):
+        return None
+    ip, port_str = addr.split(":", 1)
+    return ip, int(port_str)
+
+
+def _instance_addr_key(ip: str, port: int) -> str:
+    return f"{ip}:{port}"
+
+
+def _group_shards_by_cluster(cluster_domain_shard_list: list) -> dict[str, list[str]]:
+    grouped = defaultdict(list)
+    for cluster_domain_shard in cluster_domain_shard_list:
+        cluster_domain, shard = cluster_domain_shard.split(":", 1)
+        if shard not in grouped[cluster_domain]:
+            grouped[cluster_domain].append(shard)
+    return grouped
+
+
+def _chunk_list(items: list, chunk_size: int) -> list[list]:
+    if chunk_size <= 0:
+        return [items]
+    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
+def _load_ext_map_by_ip_ports(ip_ports: list[tuple[str, int]]) -> dict[str, MongoDBStorageInstanceExt]:
+    if not ip_ports:
+        return {}
+
+    query = Q()
+    for ip, port in ip_ports:
+        query |= Q(instance__machine__ip=ip, instance__port=port)
+
+    ext_map = {}
+    for ext in MongoDBStorageInstanceExt.objects.filter(query).select_related(
+        "instance__machine", "instance__cluster"
+    ):
+        key = _instance_addr_key(ext.instance.machine.ip, ext.instance.port)
+        if key in ext_map:
+            logger.error(f"multiple MongoDBStorageInstanceExt rows for instance {key}, skip duplicates")
+            continue
+        ext_map[key] = ext
+    return ext_map
+
+
+def _bulk_update_ext_records(ext_records: list[MongoDBStorageInstanceExt]) -> int:
+    if not ext_records:
+        return 0
+    MongoDBStorageInstanceExt.objects.bulk_update(ext_records, EXT_BULK_UPDATE_FIELDS, batch_size=500)
+    return len(ext_records)
+
+
+def _resolve_report_state(new_state_code: int) -> tuple[str, bool]:
+    if new_state_code in ABNORMAL_STATE_CODES:
+        return ReportStateType.ABNORMAL.value, False
+    if new_state_code == MongoDBStorageInstanceStatus.PRIMARY.value:
+        return ReportStateType.WARNING.value, False
+    return ReportStateType.NORMAL.value, True
+
+
+def _make_change_report(
+    ext: MongoDBStorageInstanceExt,
+    *,
+    report_day: int,
+    sub_type: str,
+    shard: str,
+    old_state: str,
+    old_state_code: int,
+    new_state: str,
+    new_state_code: int,
+) -> MongodbBackupCheckReport:
+    cluster = ext.instance.cluster
+    report_state, status = _resolve_report_state(new_state_code)
+    return MongodbBackupCheckReport(
+        creator="",
+        subtype=sub_type,
+        report_day=report_day,
+        bk_biz_id=cluster.bk_biz_id,
+        bk_cloud_id=cluster.bk_cloud_id,
+        cluster=cluster.immute_domain,
+        cluster_id=cluster.id,
+        cluster_type=cluster.cluster_type,
+        shard=shard or ext.shard_name or "",
+        instance=_instance_addr_key(ext.instance.machine.ip, ext.instance.port),
+        status=status,
+        state=report_state,
+        msg=f"{old_state}({old_state_code}) -> {new_state}({new_state_code})",
+    )
+
+
 class SyncStorageInstanceStatusTask:
     """同步storage实例的status到db_meta表中"""
 
@@ -109,7 +213,7 @@ class SyncStorageInstanceStatusTask:
     def __init__(self):
         self.check_type = StorageInstanceStatusCheckSubType.SyncStatus.value
 
-    def start(self, report_day: int = None, batch_size: int = 20) -> None:
+    def start(self, report_day: int = None, batch_size: int = DEFAULT_FETCH_METRIC_BATCH_SIZE) -> None:
         """
         replicaset, sharded cluster 2种架构：
         1, list all cluster
@@ -126,7 +230,7 @@ class SyncStorageInstanceStatusTask:
         try:
             # step0: 初始化Ext表
             if RedisConn.exists(SYNC_INSTANCE_STATUS_INIT_EXT_TABLE_FLAG_KEY):
-                logger.info("SyncStorageInstanceStatusTask init_ext_table already done, skip")
+                logger.debug("SyncStorageInstanceStatusTask init_ext_table already done, skip")
             else:
                 logger.info("SyncStorageInstanceStatusTask init_ext_table")
                 self.init_ext_table()
@@ -137,8 +241,12 @@ class SyncStorageInstanceStatusTask:
             if report_day is None:
                 report_day = get_report_day_from_time(timezone.now())
             record_batch_ops = RecordBatchOps(self.check_type, report_day)
-            deleted_count = record_batch_ops.delete_old_record(360)
-            logger.info(
+            deleted_count = 0
+            last_delete_day = RedisConn.get(SYNC_INSTANCE_STATUS_DELETE_OLD_RECORD_FLAG_KEY)
+            if last_delete_day != str(report_day):
+                deleted_count = record_batch_ops.delete_old_record(360)
+                RedisConn.set(SYNC_INSTANCE_STATUS_DELETE_OLD_RECORD_FLAG_KEY, str(report_day))
+            logger.debug(
                 f"SyncStorageInstanceStatusTask report_day: {report_day} "
                 f"sub_type: {self.check_type} "
                 f"deleted_count: {deleted_count}"
@@ -153,14 +261,14 @@ class SyncStorageInstanceStatusTask:
             try:
                 # 每2分钟执行一次，这里查询4分钟内的变化.避免漏掉.
                 instance_list = self.fetch_latest_changes(minutes=4)
-                logger.info(f"SyncStorageInstanceStatusTask fetch_latest_changes: {len(instance_list)} instances")
+                logger.debug(f"SyncStorageInstanceStatusTask fetch_latest_changes: {len(instance_list)} instances")
                 # 状态变化 会在同一个shard的多个instance上同时变化，需要合并.
                 # 所以这里以shard为单位，查询并合并状态变化.
                 # 获得所有的cluster_domain和shard的组合
                 shard_list = list(
                     set([instance["cluster_domain"] + ":" + instance["shard"] for instance in instance_list])
                 )
-                self.check_and_update_shards(shard_list)
+                self.check_and_update_shards(shard_list, record_batch_ops, report_day)
             except Exception as e:
                 logger.error(f"fetch_latest_changes error: {e}")
 
@@ -172,118 +280,166 @@ class SyncStorageInstanceStatusTask:
 
             # step3: 最近更新时间大于5分钟的PRIMARY，检查并更新.
             try:
-                changed_instance_list = self.fetch_changed_instance_list()
-                logger.info(
+                changed_instance_list = self.fetch_changed_instance_list(batch_size=batch_size)
+                logger.debug(
                     f"SyncStorageInstanceStatusTask fetch_changed_instance_list: {len(changed_instance_list)} instances"
                 )
-                self.check_and_update_instance(changed_instance_list)
+                self.check_and_update_instance(changed_instance_list, record_batch_ops, report_day)
             except Exception as e:
                 traceback.print_exc()
                 logger.error(f"fetch_changed_instance_list error: {e}")
+
+            record_batch_ops.bulk_create()
         finally:
             _release_lock(SYNC_INSTANCE_STATUS_LOCK_KEY, lock_value)
 
-    def check_and_update_shards(self, cluster_domain_shard_list: list):
+    def check_and_update_shards(
+        self, cluster_domain_shard_list: list, record_batch_ops: RecordBatchOps, report_day: int
+    ):
         """
         以shard为单位，检查并更新 instance的ext表
         """
-        for cluster_domain_shard in cluster_domain_shard_list:
-            cluster_domain = cluster_domain_shard.split(":")[0]
-            shard = cluster_domain_shard.split(":")[1]
-            metric_val = _instant_fetch_metric(
-                {
-                    "shard": shard,
-                    "cluster_domain": cluster_domain,
-                }
-            )
-            if metric_val is None:
-                logger.error(
-                    f"_instant_fetch_metric error: metric_val is None for cluster_domain {cluster_domain} and shard {shard}"
+        shards_by_cluster = _group_shards_by_cluster(cluster_domain_shard_list)
+        for cluster_domain, shard_list in shards_by_cluster.items():
+            for shard_batch in _chunk_list(shard_list, SHARD_METRIC_BATCH_SIZE):
+                metric_val = _instant_fetch_metric(
+                    {
+                        "shard": shard_batch,
+                        "cluster_domain": cluster_domain,
+                    }
                 )
-                continue
-            # update ext table
-            for item in metric_val:
-                instance_ip = item["bk_target_ip"]
-                instance_port = int(item["instance_port"])
-                value = int(item["value"])
-                try:
-                    ext = MongoDBStorageInstanceExt.objects.get(
-                        instance__machine__ip=instance_ip, instance__port=instance_port
-                    )
-                except ObjectDoesNotExist:
-                    logger.warning(
-                        f"missing MongoDBStorageInstanceExt for instance {instance_ip}:{instance_port}, skip"
-                    )
-                    continue
-                except MultipleObjectsReturned:
+                if metric_val is None:
                     logger.error(
-                        f"multiple MongoDBStorageInstanceExt rows for instance {instance_ip}:{instance_port}, skip"
+                        "_instant_fetch_metric error: metric_val is None for cluster_domain %s shards %s",
+                        cluster_domain,
+                        shard_batch,
                     )
                     continue
-                ext.update_at = timezone.now()
-                status = MongoDBStorageInstanceStatus.get_status_by_value(value)
-                ext.state_code = status.value
-                ext.state = status.name
-                ext.shard_name = item.get("shard", "")
-                ext.save()
-                logger.info(
-                    f"update ext table: {ext.id} {ext.instance.id} "
-                    f"{ext.priority} {ext.hidden} {ext.update_at} {ext.state} {ext.state_code}"
+
+                ip_ports = [(item["bk_target_ip"], int(item["instance_port"])) for item in metric_val]
+                ext_map = _load_ext_map_by_ip_ports(ip_ports)
+                now = timezone.now()
+                ext_updates = []
+                for item in metric_val:
+                    instance_ip = item["bk_target_ip"]
+                    instance_port = int(item["instance_port"])
+                    addr_key = _instance_addr_key(instance_ip, instance_port)
+                    ext = ext_map.get(addr_key)
+                    if ext is None:
+                        logger.warning(
+                            "missing MongoDBStorageInstanceExt for instance %s, skip",
+                            addr_key,
+                        )
+                        continue
+                    value = int(item["value"])
+                    if ext.state_code == value:
+                        continue
+                    old_state = ext.state
+                    old_state_code = ext.state_code
+                    status = MongoDBStorageInstanceStatus.get_status_by_value(value)
+                    record_batch_ops.append(
+                        _make_change_report(
+                            ext,
+                            report_day=report_day,
+                            sub_type=self.check_type,
+                            shard=item.get("shard", ""),
+                            old_state=old_state,
+                            old_state_code=old_state_code,
+                            new_state=status.name,
+                            new_state_code=status.value,
+                        )
+                    )
+                    ext.update_at = now
+                    ext.state_code = status.value
+                    ext.state = status.name
+                    ext.shard_name = item.get("shard", "")
+                    ext_updates.append(ext)
+
+                updated_count = _bulk_update_ext_records(ext_updates)
+                logger.debug(
+                    "check_and_update_shards updated %s ext rows for cluster_domain=%s shards=%s",
+                    updated_count,
+                    cluster_domain,
+                    shard_batch,
                 )
 
-    def check_and_update_instance(self, instance_list: list):
+    def check_and_update_instance(self, instance_list: list, record_batch_ops: RecordBatchOps, report_day: int):
         """
         检查并更新cluster的状态
         """
+        pending_updates = []
         for one_instance in instance_list:
             addr = one_instance["instance"]
-            if not is_valid_instance_addr(addr):
+            parsed = _parse_instance_addr(addr)
+            if parsed is None:
                 logger.debug(f"addr must be ip:port, skip: {addr}")
                 continue
-            old_state_code = one_instance["old_state_code"]  # -1 or other status code
-            new_state_code = one_instance["new_state_code"]  # -1 or other status code
-            new_state = one_instance["new_state"]  # UNKNOWN or other status name
-            new_shard_name = one_instance.get("new_shard_name", "")  # shard name
+            old_state_code = one_instance["old_state_code"]
+            new_state_code = one_instance["new_state_code"]
+            new_state = one_instance["new_state"]
+            new_shard_name = one_instance.get("new_shard_name", "")
             if old_state_code == new_state_code:
                 logger.debug(f"old_state_code == new_state_code, skip update for instance {addr}")
                 continue
-            # update ext table
-            try:
-                ext = MongoDBStorageInstanceExt.objects.get(
-                    instance__machine__ip=addr.split(":")[0], instance__port=int(addr.split(":")[1])
+            pending_updates.append((parsed, new_state_code, new_state, new_shard_name))
+
+        if not pending_updates:
+            return
+
+        ext_map = _load_ext_map_by_ip_ports([parsed for parsed, _, _, _ in pending_updates])
+        now = timezone.now()
+        ext_updates = []
+        for (ip, port), new_state_code, new_state, new_shard_name in pending_updates:
+            addr_key = _instance_addr_key(ip, port)
+            ext = ext_map.get(addr_key)
+            if ext is None:
+                logger.warning(f"missing MongoDBStorageInstanceExt for instance {addr_key}, skip")
+                continue
+            if ext.state_code == new_state_code:
+                continue
+            old_state = ext.state
+            old_state_code = ext.state_code
+            record_batch_ops.append(
+                _make_change_report(
+                    ext,
+                    report_day=report_day,
+                    sub_type=self.check_type,
+                    shard=new_shard_name or ext.shard_name or "",
+                    old_state=old_state,
+                    old_state_code=old_state_code,
+                    new_state=new_state,
+                    new_state_code=new_state_code,
                 )
-            except ObjectDoesNotExist:
-                logger.warning(f"missing MongoDBStorageInstanceExt for instance {addr}, skip")
-                continue
-            except MultipleObjectsReturned:
-                logger.error(f"multiple MongoDBStorageInstanceExt rows for instance {addr}, skip")
-                continue
-            ext.update_at = timezone.now()
+            )
+            ext.update_at = now
             ext.state_code = new_state_code
             ext.state = new_state
             if new_shard_name is not None and new_shard_name != "":
                 ext.shard_name = new_shard_name
-            ext.save()
-            logger.info(
-                f"update ext table: {ext.id} {ext.instance.id} "
-                f"{ext.priority} {ext.hidden} {ext.update_at} {ext.state} {ext.state_code}"
-            )
+            ext_updates.append(ext)
 
-    def fetch_changed_instance_list(self) -> list:
+        updated_count = _bulk_update_ext_records(ext_updates)
+        logger.debug("check_and_update_instance updated %s ext rows", updated_count)
+
+    def fetch_changed_instance_list(self, batch_size: int = DEFAULT_FETCH_METRIC_BATCH_SIZE) -> list:
         """
         检查所有的PRIMARY的instance的状态，如果状态不为PRIMARY，则更新整个cluster_domain和shard的状态
         """
-        query = Q(cluster_type__in=[ClusterType.MongoShardedCluster, ClusterType.MongoReplicaSet])
-        mongo_storage_instance_ext_qs = MongoDBStorageInstanceExt.objects.filter(
-            instance__cluster__in=Cluster.objects.filter(query), update_at__lt=timezone.now() - timedelta(seconds=200)
-        ).exclude(state_code=MongoDBStorageInstanceStatus.SECONDARY.value)
+        mongo_storage_instance_ext_qs = (
+            MongoDBStorageInstanceExt.objects.filter(
+                instance__cluster__cluster_type__in=[ClusterType.MongoShardedCluster, ClusterType.MongoReplicaSet],
+                update_at__lt=timezone.now() - timedelta(seconds=200),
+            )
+            .exclude(state_code=MongoDBStorageInstanceStatus.SECONDARY.value)
+            .select_related("instance__machine")
+        )
         mongo_storage_instance_ext_count = mongo_storage_instance_ext_qs.count()
-        logger.info(
+        logger.debug(
             f"SyncStorageInstanceStatusTask mongo_storage_instance_ext_list: {mongo_storage_instance_ext_count} instances"
         )
         changed_instance_list = []
         addr_list = []
-        fetch_metric_batch_size = 20
+        fetch_metric_batch_size = batch_size
         current_state_code_dict = defaultdict(int)
 
         def flush_batch():
@@ -346,7 +502,10 @@ class SyncStorageInstanceStatusTask:
                 flush_batch()
         if addr_list:
             flush_batch()
-        logger.info(f"SyncStorageInstanceStatusTask changed_instance_list: {changed_instance_list}")
+        logger.debug(
+            "SyncStorageInstanceStatusTask changed_instance_list count: %s",
+            len(changed_instance_list),
+        )
         return changed_instance_list
 
     def init_ext_table(self):
@@ -444,7 +603,6 @@ def _instant_fetch_metric(
     return [] or None(error)
     若某条 series 的 shard 缺失或为空则跳过该条；collect_skipped_empty_shard 若传入，会记录对应 instance（ip:port）。
     """
-    logger.info("_instant_fetch_metric condition : {} ".format(condition))
     query_template = {
         # Include `shard` in `avg by` so BK-Monitor series dimensions still expose it (otherwise it is dropped).
         "replset_my_state": """avg by (cluster_domain,shard,instance_port,instance_role,instance,bk_target_ip) (
@@ -497,28 +655,28 @@ def _instant_fetch_metric(
             series = out["series"]
             break
         except Exception as e:
-            logger.error("query metric error: {}".format(e))
             if i < retry_times - 1:
+                logger.debug("query metric error (retry %s/%s): %s", i + 1, retry_times, e)
                 time.sleep(sleep_time)
                 continue
-            else:
-                logger.error("query metric error: retry_times is reached")
-                return None
+            logger.error("query metric error: retry_times is reached, last_error=%s", e)
+            return None
+
+    skipped_empty_datapoints = 0
+    skipped_empty_shard = 0
     for item in series:
         value = _extract_datapoint_value(item)
         if value is None:
-            logger.warning(f"_instant_fetch_metric: empty datapoints, skip item: {item.get('dimensions', {})}")
+            skipped_empty_datapoints += 1
             continue
-        logger.info("item: {}".format(item))
         dims = item["dimensions"]
         ip_port = dims["bk_target_ip"] + ":" + str(dims["instance_port"])
         shard = (dims.get("shard") or "").strip()
         if not shard:
-            logger.warning(f"_instant_fetch_metric: missing or empty shard in dimensions, skip item: {dims}")
+            skipped_empty_shard += 1
             if collect_skipped_empty_shard is not None:
                 collect_skipped_empty_shard.add(ip_port)
             continue
-        logger.info("ip_port: {}".format(ip_port))
         metric_result.append(
             {
                 "instance": ip_port,
@@ -529,5 +687,14 @@ def _instant_fetch_metric(
                 "shard": shard,
                 "value": value,
             }
+        )
+
+    if skipped_empty_datapoints or skipped_empty_shard:
+        logger.debug(
+            "_instant_fetch_metric skipped: empty_datapoints=%s empty_shard=%s parsed=%s condition=%s",
+            skipped_empty_datapoints,
+            skipped_empty_shard,
+            len(metric_result),
+            condition,
         )
     return metric_result

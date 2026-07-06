@@ -8,9 +8,14 @@ Unless required by applicable law or agreed to in writing, software distributed 
 an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 """
-from unittest.mock import patch
+import logging
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+from backend.db_meta.enums.instance_status import MongoDBStorageInstanceStatus
+from backend.db_report.enums import ReportStateType
 
 pytestmark = pytest.mark.django_db
 
@@ -47,3 +52,192 @@ class TestInstantFetchMetricConditionBuild:
         )
         assert 'cluster_domain=~"^(a.b|c-d)$"' in promql
         assert 'shard="rs0"' in promql
+
+
+class TestSyncInstanceStatusHelpers:
+    def test_group_shards_by_cluster_deduplicates(self, sync_instance_status_module):
+        grouped = sync_instance_status_module._group_shards_by_cluster(
+            ["cluster-a:rs0", "cluster-a:rs1", "cluster-a:rs0", "cluster-b:rs0"]
+        )
+        assert grouped == {"cluster-a": ["rs0", "rs1"], "cluster-b": ["rs0"]}
+
+    def test_chunk_list(self, sync_instance_status_module):
+        assert sync_instance_status_module._chunk_list([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4], [5]]
+
+    def test_shard_list_condition_build(self, sync_instance_status_module):
+        promql = _capture_promql(
+            sync_instance_status_module,
+            {"cluster_domain": "mongo.example", "shard": ["rs0", "rs1"]},
+        )
+        assert 'cluster_domain="mongo.example"' in promql
+        assert 'shard=~"^(rs0|rs1)$"' in promql
+
+
+class TestInstantFetchMetricLogging:
+    def test_skipped_series_emits_single_debug_not_warning(self, sync_instance_status_module, caplog):
+        caplog.set_level(logging.DEBUG)
+        series = [
+            {"datapoints": [], "dimensions": {"bk_target_ip": "1.1.1.1", "instance_port": 27017}},
+            {
+                "datapoints": [[1]],
+                "dimensions": {
+                    "bk_target_ip": "1.1.1.2",
+                    "instance_port": 27017,
+                    "instance_role": "m1",
+                    "cluster_domain": "c.example",
+                },
+            },
+        ]
+
+        with patch.object(sync_instance_status_module.BKMonitorV3Api, "unify_query", return_value={"series": series}):
+            result = sync_instance_status_module._instant_fetch_metric({"shard": "rs0"}, retry_times=1, sleep_time=0)
+
+        assert result == []
+        warning_msgs = [record.message for record in caplog.records if record.levelno == logging.WARNING]
+        assert not any("_instant_fetch_metric" in msg for msg in warning_msgs)
+        debug_msgs = [record.message for record in caplog.records if record.levelno == logging.DEBUG]
+        assert any("empty_datapoints=1" in msg and "empty_shard=1" in msg for msg in debug_msgs)
+
+    def test_retry_intermediate_failure_uses_debug(self, sync_instance_status_module, caplog):
+        caplog.set_level(logging.DEBUG)
+
+        def _raise_then_succeed(params, use_admin=True):
+            if not hasattr(_raise_then_succeed, "called"):
+                _raise_then_succeed.called = True
+                raise RuntimeError("temporary network error")
+            return {"series": []}
+
+        with patch.object(sync_instance_status_module.BKMonitorV3Api, "unify_query", side_effect=_raise_then_succeed):
+            result = sync_instance_status_module._instant_fetch_metric({"shard": "rs0"}, retry_times=2, sleep_time=0)
+
+        assert result == []
+        error_msgs = [record.message for record in caplog.records if record.levelno == logging.ERROR]
+        assert not error_msgs
+        debug_msgs = [record.message for record in caplog.records if record.levelno == logging.DEBUG]
+        assert any("query metric error (retry 1/2)" in msg for msg in debug_msgs)
+
+
+def _make_mock_ext(ip="127.0.0.1", port=27017, state_code=2, state="SECONDARY", shard_name="rs0"):
+    cluster = SimpleNamespace(
+        id=100,
+        bk_biz_id=1,
+        bk_cloud_id=0,
+        immute_domain="mongo.example.db",
+        cluster_type="MongoReplicaSet",
+    )
+    machine = SimpleNamespace(ip=ip)
+    instance = SimpleNamespace(port=port, machine=machine, cluster=cluster)
+    return SimpleNamespace(state=state, state_code=state_code, shard_name=shard_name, instance=instance)
+
+
+class TestInstanceChangeReport:
+    def test_make_change_report_fields(self, sync_instance_status_module):
+        ext = _make_mock_ext(state_code=2, state="SECONDARY")
+        report = sync_instance_status_module._make_change_report(
+            ext,
+            report_day=20260706,
+            sub_type="sync_storage_instance_status",
+            shard="rs0",
+            old_state="SECONDARY",
+            old_state_code=2,
+            new_state="PRIMARY",
+            new_state_code=1,
+        )
+        assert report.subtype == "sync_storage_instance_status"
+        assert report.report_day == 20260706
+        assert report.instance == "127.0.0.1:27017"
+        assert report.shard == "rs0"
+        assert report.msg == "SECONDARY(2) -> PRIMARY(1)"
+        assert report.state == ReportStateType.WARNING.value
+        assert report.status is False
+
+    def test_resolve_report_state_abnormal(self, sync_instance_status_module):
+        state, status = sync_instance_status_module._resolve_report_state(MongoDBStorageInstanceStatus.UNKNOWN.value)
+        assert state == ReportStateType.ABNORMAL.value
+        assert status is False
+
+    def test_check_and_update_instance_appends_on_change(self, sync_instance_status_module):
+        ext = _make_mock_ext(state_code=1, state="PRIMARY")
+        record_batch_ops = MagicMock()
+        instance_list = [
+            {
+                "instance": "127.0.0.1:27017",
+                "old_state_code": 1,
+                "new_state_code": 2,
+                "new_state": "SECONDARY",
+                "new_shard_name": "rs0",
+            }
+        ]
+
+        with patch.object(
+            sync_instance_status_module, "_load_ext_map_by_ip_ports", return_value={"127.0.0.1:27017": ext}
+        ), patch.object(sync_instance_status_module, "_bulk_update_ext_records", return_value=1):
+            sync_instance_status_module.SyncStorageInstanceStatusTask().check_and_update_instance(
+                instance_list, record_batch_ops, 20260706
+            )
+
+        record_batch_ops.append.assert_called_once()
+        report = record_batch_ops.append.call_args[0][0]
+        assert report.msg == "PRIMARY(1) -> SECONDARY(2)"
+
+    def test_check_and_update_instance_skips_unchanged(self, sync_instance_status_module):
+        record_batch_ops = MagicMock()
+        instance_list = [
+            {
+                "instance": "127.0.0.1:27017",
+                "old_state_code": 2,
+                "new_state_code": 2,
+                "new_state": "SECONDARY",
+                "new_shard_name": "rs0",
+            }
+        ]
+
+        sync_instance_status_module.SyncStorageInstanceStatusTask().check_and_update_instance(
+            instance_list, record_batch_ops, 20260706
+        )
+        record_batch_ops.append.assert_not_called()
+
+    def test_check_and_update_shards_skips_unchanged(self, sync_instance_status_module):
+        ext = _make_mock_ext(state_code=2, state="SECONDARY")
+        record_batch_ops = MagicMock()
+        metric_val = [
+            {
+                "bk_target_ip": "127.0.0.1",
+                "instance_port": 27017,
+                "value": 2,
+                "shard": "rs0",
+            }
+        ]
+
+        with patch.object(sync_instance_status_module, "_instant_fetch_metric", return_value=metric_val), patch.object(
+            sync_instance_status_module, "_load_ext_map_by_ip_ports", return_value={"127.0.0.1:27017": ext}
+        ), patch.object(sync_instance_status_module, "_bulk_update_ext_records", return_value=0) as bulk_update:
+            sync_instance_status_module.SyncStorageInstanceStatusTask().check_and_update_shards(
+                ["mongo.example.db:rs0"], record_batch_ops, 20260706
+            )
+
+        record_batch_ops.append.assert_not_called()
+        bulk_update.assert_called_once_with([])
+
+    def test_check_and_update_shards_appends_when_state_code_changes(self, sync_instance_status_module):
+        ext = _make_mock_ext(state_code=1, state="PRIMARY")
+        record_batch_ops = MagicMock()
+        metric_val = [
+            {
+                "bk_target_ip": "127.0.0.1",
+                "instance_port": 27017,
+                "value": 2,
+                "shard": "rs0",
+            }
+        ]
+
+        with patch.object(sync_instance_status_module, "_instant_fetch_metric", return_value=metric_val), patch.object(
+            sync_instance_status_module, "_load_ext_map_by_ip_ports", return_value={"127.0.0.1:27017": ext}
+        ), patch.object(sync_instance_status_module, "_bulk_update_ext_records", return_value=1):
+            sync_instance_status_module.SyncStorageInstanceStatusTask().check_and_update_shards(
+                ["mongo.example.db:rs0"], record_batch_ops, 20260706
+            )
+
+        record_batch_ops.append.assert_called_once()
+        report = record_batch_ops.append.call_args[0][0]
+        assert report.msg == "PRIMARY(1) -> SECONDARY(2)"
