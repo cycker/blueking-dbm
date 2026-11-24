@@ -18,6 +18,7 @@ from django.http import HttpResponse
 from django.utils.translation import gettext_lazy as _
 
 from backend.constants import IP_PORT_DIVIDER
+from backend.db_meta.api.cluster_state.filters import build_state_filter_q
 from backend.db_meta.enums import ClusterEntryType, ClusterType, InstanceRole, MachineType
 from backend.db_meta.enums.comm import SystemTagEnum
 from backend.db_meta.models import (
@@ -389,6 +390,7 @@ class BaseListRetrieveResource(CommonQueryResourceMixin):
     def list_clusters(cls, bk_biz_id: int, query_params: Dict, limit: int, offset: int) -> ResourceList:
         """查询集群列表，补充公共字段"""
         resource_list = cls._list_clusters(bk_biz_id, query_params, limit, offset)
+        # ClusterStateService.fill_states(resource_list.data)
         return resource_list
 
     @classmethod
@@ -580,7 +582,11 @@ class ListRetrieveResource(BaseListRetrieveResource, CommonExportQueryResourceMi
             ).distinct()
             return _cluster_queryset
 
-        inner_filter_func_map = {"instance": filter_instance_func}
+        def filter_state_func(_query_params, _cluster_queryset, _proxy_queryset, _storage_queryset):
+            """集群状态过滤 state__{key}[__gte|__lte]"""
+            return _cluster_queryset.filter(build_state_filter_q(cls.cluster_types, _query_params["state_filters"]))
+
+        inner_filter_func_map = {"instance": filter_instance_func, "state_filters": filter_state_func}
         filter_func_map = filter_func_map or {}
         filter_func_map.update(inner_filter_func_map)
 
@@ -647,6 +653,9 @@ class ListRetrieveResource(BaseListRetrieveResource, CommonExportQueryResourceMi
         db_module_queryset = DBModule.objects.filter(cluster_type__in=cls.cluster_types)
         if bk_biz_id is not None:
             db_module_queryset = db_module_queryset.filter(bk_biz_id=bk_biz_id)
+        # 快速搜索按当前页模块 ID 缩小范围，减少跨业务模块数据的传输和映射开销。
+        if kwargs.get("scope_related_to_page"):
+            db_module_queryset = db_module_queryset.filter(db_module_id__in={c.db_module_id for c in cluster_list})
         # 提取所需的字段和构建映射
         db_module_names_map = {
             module["db_module_id"]: module["alias_name"]
@@ -668,7 +677,16 @@ class ListRetrieveResource(BaseListRetrieveResource, CommonExportQueryResourceMi
 
         # 预取集群的规格信息
         db_types = set([ClusterType.cluster_type_to_db_type(cluster_type) for cluster_type in cls.cluster_types])
-        kwargs["remote_spec_map"] = {s.spec_id: s for s in Spec.objects.filter(spec_cluster_type__in=db_types)}
+        spec_queryset = Spec.objects.filter(spec_cluster_type__in=db_types)
+        # 从已预取的实例与机器收集规格 ID，不额外查询机器，也不加载无关规格。
+        if kwargs.get("scope_related_to_page"):
+            spec_ids = {
+                instance.machine.spec_id
+                for cluster in cluster_list
+                for instance in (*cluster.proxies, *cluster.storages)
+            }
+            spec_queryset = spec_queryset.filter(spec_id__in=spec_ids)
+        kwargs["remote_spec_map"] = {s.spec_id: s for s in spec_queryset}
 
         # 预取园区信息
         cluster_zone_map = BKSubzone.get_subzone_map(get_cache=True)

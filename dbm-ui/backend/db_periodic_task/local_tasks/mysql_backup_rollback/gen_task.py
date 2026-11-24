@@ -8,6 +8,10 @@ Unless required by applicable law or agreed to in writing, software distributed 
 an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 """
+# DEPRECATED: 旧版 MySQL 备份恢复演练调度实现，已由 gen_task_v2.py 替代（见 task.py）。
+# 仅作回退兜底保留，待 gen_task_v2.py 线上运行稳定后删除本文件。
+# 注意：删除前需先将 gen_task_v2.py 复用的公共工具（EXERCISED_BACKUP_ID_LOOKBACK_DAYS、
+# backup_info_format、build_recovery_storage_spec、bytes_to_gb、return_resource）迁出。
 import heapq
 import json
 import logging
@@ -977,11 +981,12 @@ def _prepare_cluster_data(num: int):
         cluster_count_exclude_condition |= Q(bk_biz_id__in=ignored_biz_ids)
     if ignored_cluster_ids:
         cluster_count_exclude_condition |= Q(id__in=ignored_cluster_ids)
+    source_clusters = Cluster.objects.exclude_builtin_cluster_tags()
     tendbcluster_count = (
-        Cluster.objects.exclude(cluster_count_exclude_condition).filter(cluster_type=ClusterType.TenDBCluster).count()
+        source_clusters.exclude(cluster_count_exclude_condition).filter(cluster_type=ClusterType.TenDBCluster).count()
     )
     tendbha_count = (
-        Cluster.objects.exclude(cluster_count_exclude_condition).filter(cluster_type=ClusterType.TenDBHA).count()
+        source_clusters.exclude(cluster_count_exclude_condition).filter(cluster_type=ClusterType.TenDBHA).count()
     )
 
     logger.info(_("可用集群数量统计: TenDBCluster {} 个, TenDBHA {} 个").format(tendbcluster_count, tendbha_count))
@@ -1063,7 +1068,8 @@ def _collect_unpracticed_clusters(
     exclude_condition = _build_exclude_condition(exclude_biz_ids, exclude_cluster_id)
 
     clusters = (
-        Cluster.objects.exclude(exclude_condition)
+        Cluster.objects.exclude_builtin_cluster_tags()
+        .exclude(exclude_condition)
         .filter(cluster_type__in=[ClusterType.TenDBCluster, ClusterType.TenDBHA])
         .only("id", "immute_domain", "bk_biz_id", "cluster_type")
         .iterator(chunk_size=500)
@@ -1106,7 +1112,8 @@ def _collect_all_clusters(
     if unpracticed_biz_ids:
         exclude_condition |= Q(bk_biz_id__in=unpracticed_biz_ids)
     clusters = (
-        Cluster.objects.filter(cluster_type__in=[ClusterType.TenDBCluster, ClusterType.TenDBHA])
+        Cluster.objects.exclude_builtin_cluster_tags()
+        .filter(cluster_type__in=[ClusterType.TenDBCluster, ClusterType.TenDBHA])
         .exclude(exclude_condition)
         .only("id", "immute_domain", "bk_biz_id", "cluster_type")
         .iterator(chunk_size=500)

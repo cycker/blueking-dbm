@@ -59,7 +59,7 @@ var Cfg = Configuration{
 		InflightTTL:                30 * time.Second,
 		SwitchTimeout:              10 * time.Minute,
 		DbmApiMetadataHashCnt:      minDbmApiMetadataHashCnt,
-		EnableWhiteList:            true,
+		EnableWhiteListForSwitch:   true,
 		SwitchFlow: SwitchFlowConfig{
 			Common: SwitchFlowCommonConfig{
 				HostLevelSwitchMaxHostNum:        32,
@@ -68,11 +68,12 @@ var Cfg = Configuration{
 				ClusterLevelSwitchMaxInstanceNum: 64,
 				DbmApiMaxConcurrentRequests:      8,
 				SwitchLogWriteTimeout:            1 * time.Second,
-				DbConnectTimeout:                 3 * time.Second,
+				DbConnectTimeout:                 10 * time.Second,
 				ClusterLockTimeout:               60 * time.Second,
 			},
 			Mysql: SwitchFlowMysqlConfig{
-				ExecSqlTimeout:                6 * time.Second,
+				ExecSqlTimeout:                30 * time.Second,
+				TdbctlFlushRoutingTimeout:     30 * time.Second,
 				AllowedIgnoreCheckSum:         false,
 				AllowedIgnoreSlaveDelay:       false,
 				AllowedSlowBytes:              0,
@@ -139,6 +140,7 @@ type SwitchFlowCommonConfig struct {
 // SwitchFlowMysqlConfig holds MySQL / TenDB switch-flow settings.
 type SwitchFlowMysqlConfig struct {
 	ExecSqlTimeout                time.Duration `yaml:"execSqlTimeout"                     mapstructure:"execSqlTimeout"`
+	TdbctlFlushRoutingTimeout     time.Duration `yaml:"tdbctlFlushRoutingTimeout"          mapstructure:"tdbctlFlushRoutingTimeout"`
 	AllowedIgnoreCheckSum         bool          `yaml:"slaveAllowedIgnoreCheckSum"         mapstructure:"slaveAllowedIgnoreCheckSum"`
 	AllowedIgnoreSlaveDelay       bool          `yaml:"slaveAllowedIgnoreSlaveDelay"       mapstructure:"slaveAllowedIgnoreSlaveDelay"`
 	AllowedSlowBytes              int           `yaml:"slaveAllowedSlowBytes"              mapstructure:"slaveAllowedSlowBytes"`
@@ -163,7 +165,8 @@ type WorkflowConfig struct {
 	ReadDbMetricOffsetDuration time.Duration    `yaml:"readDbMetricOffsetDuration" mapstructure:"readDbMetricOffsetDuration"`
 	ReadDbEventOffsetDuration  time.Duration    `yaml:"readDbEventOffsetDuration"  mapstructure:"readDbEventOffsetDuration"`
 	EnableSwitching            bool             `yaml:"enableSwitching"            mapstructure:"enableSwitching"`
-	EnableWhiteList            bool             `yaml:"enableWhiteList"            mapstructure:"enableWhiteList"`
+	EnableWhiteListForSwitch   bool             `yaml:"enableWhiteListForSwitch"   mapstructure:"enableWhiteListForSwitch"`
+	EnableWhiteListForScan     bool             `yaml:"enableWhiteListForScan"     mapstructure:"enableWhiteListForScan"`
 	WindowDuration             time.Duration    `yaml:"windowDuration"             mapstructure:"windowDuration"`
 	PopInterval                time.Duration    `yaml:"popInterval"                mapstructure:"popInterval"`
 	PopSwitchSemSize           int              `yaml:"popSwitchSemSize"           mapstructure:"popSwitchSemSize"`

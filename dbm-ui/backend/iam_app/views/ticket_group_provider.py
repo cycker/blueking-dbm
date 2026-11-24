@@ -13,24 +13,26 @@ from django.utils.translation import gettext as _
 from iam.resource.provider import ListResult
 
 from backend.configuration.constants import DBType
+from backend.iam_app.constans import TICKET_GROUP_OTHER
 from backend.iam_app.dataclass.resources import ResourceEnum, ResourceMeta
 from backend.iam_app.views.dbtype_provider import DBTypeResourceProvider
 
 
 class TicketGroupResourceProvider(DBTypeResourceProvider):
     """
-    TicketGroup资源是固定的，视图简化处理: 没有属性，全量返回资源
+    TicketGroup资源是固定的，视图简化处理: 没有属性，全量返回资源。仅V3使用
     """
 
     resource_meta: ResourceMeta = ResourceEnum.TICKET_GROUP
 
     def list_instance(self, filter, page, **options):
         db_types = [{"id": db.value, "display_name": db.name} for db in DBType]
-        db_types.append({"id": "other", "display_name": _("其他")})
+        db_types.append({"id": TICKET_GROUP_OTHER, "display_name": _("其他")})
         return ListResult(results=db_types, count=len(db_types))
 
     def fetch_instance_info(self, filter, **options):
         items = [
-            {"id": id, "display_name": DBType.get_choice_label(id) if id != "other" else _("其他")} for id in filter.ids
+            {"id": id, "display_name": DBType.get_choice_label(id) if id != TICKET_GROUP_OTHER else _("其他")}
+            for id in filter.ids
         ]
         return ListResult(results=items, count=len(items))

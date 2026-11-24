@@ -9,52 +9,32 @@ an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express o
 specific language governing permissions and limitations under the License.
 """
 import ipaddress
+import logging
 
-from django.db.models import Q
 from rest_framework.request import Request
 
-from backend import env
 from backend.db_meta.models import Machine
-from backend.db_proxy.constants import DB_CLOUD_MACHINE_EXPIRE_TIME, DB_CLOUD_PROXY_EXPIRE_TIME, ExtensionType
-from backend.db_proxy.models import DBExtension
-from backend.db_proxy.reverse_api import mcache_lock, nginx_ips_mcache, registered_machines_mcache
+from backend.db_proxy.constants import DB_CLOUD_MACHINE_EXPIRE_TIME
+from backend.db_proxy.reverse_api import mcache_lock, registered_machines_mcache
 from backend.utils.redis import check_set_member_in_redis
+
+logger = logging.getLogger("root")
 
 
 def get_client_ip(request: Request):
-    # DEBUG模式下支持从参数获取ip
-    if env.DEBUG_REVERSE_API:
-        return request.query_params.get("ip") or request.data.get("ip")
+    ip = request.query_params.get("ip")
+    logger.info("read client ip from request query param: '{}'".format(ip))
+    if not ip:
+        logger.info("client ip not found in request query param, try in XFF")
+        ip = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+        logger.info("read client ip from XFF: '{}'".format(ip))
 
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0]
-        return ip
-    else:
-        raise Exception("client ip in HTTP_X_FORWARDED_FOR not found")
+    logger.info("finally client ip: '{}'".format(ip))
 
+    if not ip:
+        raise Exception("client ip not found in request")
 
-def validate_nginx_ip(bk_cloud_id: int, request: Request):
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if x_forwarded_for:
-        nginx_ip = x_forwarded_for.split(", ")[1]
-    else:
-        raise Exception("nginx ip in HTTP_X_FORWARDED_FOR not found")
-
-    if nginx_ip in nginx_ips_mcache[bk_cloud_id]:
-        return True
-    else:
-        cache_key = f"cache_cloud_nginx_{bk_cloud_id}"
-        check_nginx = lambda *args: DBExtension.objects.get(  # noqa: E731
-            Q(bk_cloud_id=bk_cloud_id, extension=ExtensionType.NGINX)
-            & (Q(details__ip=nginx_ip) | Q(details__bk_outer_ip=nginx_ip))
-        )
-        try:
-            check_set_member_in_redis(cache_key, nginx_ip, check_nginx, DB_CLOUD_PROXY_EXPIRE_TIME)
-            with mcache_lock:
-                nginx_ips_mcache[bk_cloud_id].append(nginx_ip)
-        except DBExtension.DoesNotExist:
-            raise DBExtension.DoesNotExist(f"DBCloudProxy not found for ip {nginx_ip}, bk_cloud_id {bk_cloud_id}")
+    return ip
 
 
 def validate_machine_ip(bk_cloud_id: int, request: Request):

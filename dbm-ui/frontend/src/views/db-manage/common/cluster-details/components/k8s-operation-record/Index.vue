@@ -53,7 +53,7 @@
         :title="t('操作类型')"
         :width="100">
         <template #default="{ row }: { row: KubernetesOperationLogModel }">
-          <DbTag theme="info">{{ row.requestTypeAlias }}</DbTag>
+          <DbTag theme="info">{{ row.requestTypeDisplay }}</DbTag>
         </template>
       </TableColumn>
       <TableColumn
@@ -123,13 +123,13 @@
   import { getQdrantHaOperationLog } from '@services/source/qdrantHa';
   import { getSurrealdbHaOperationLog } from '@services/source/surrealdbHa';
   import { getSurrealdbSingleOperationLog } from '@services/source/surrealdbSingle';
+  import { getVictoriametricsClusterOperationLog } from '@services/source/victoriametricsCluster.ts';
+  import { getVictoriametricsSelectOperationLog } from '@services/source/victoriametricsSelect.ts';
 
   import { useUrlSearch } from '@hooks';
 
   import DbTable from '@components/db-table/IndexNew.vue';
   import TicketStatusTag from '@components/ticket-status-tag/Index.vue';
-
-  import { getExclusiveClusterParams } from '@views/db-manage/utils/exclusiveClusterParams';
 
   import { ClusterTypes } from '@/common/const';
 
@@ -165,6 +165,8 @@
     [ClusterTypes.K8S_QDRANT_HA]: getQdrantHaOperationLog,
     [ClusterTypes.K8S_SURREALDB_HA]: getSurrealdbHaOperationLog,
     [ClusterTypes.K8S_SURREALDB_SINGLE]: getSurrealdbSingleOperationLog,
+    [ClusterTypes.K8S_VICTORIAMETRICS_CLUSTER]: getVictoriametricsClusterOperationLog,
+    [ClusterTypes.K8S_VICTORIAMETRICS_SELECT]: getVictoriametricsSelectOperationLog,
   };
 
   const tableRef = ref();
@@ -178,8 +180,7 @@
       bk_biz_id: window.PROJECT_CONFIG.BIZ_ID,
       clusterName: props.clusterData.cluster_name,
       k8sClusterName: props.clusterData.k8s_cluster_name,
-      namespace: props.clusterData.namespace,
-      ...getExclusiveClusterParams(props.clusterData),
+      nameSpace: props.clusterData.namespace,
     });
 
   const fetchData = () => {
@@ -223,9 +224,9 @@
     isShowDetail.value = true;
   };
 
-  onMounted(() => {
-    fetchData();
-  });
+  // onMounted(() => {
+  //   fetchData();
+  // });
 </script>
 
 <style lang="less">

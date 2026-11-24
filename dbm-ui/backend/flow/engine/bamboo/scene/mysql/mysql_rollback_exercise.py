@@ -8,6 +8,7 @@ Unless required by applicable law or agreed to in writing, software distributed 
 an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 """
+
 import copy
 import logging
 import pathlib
@@ -23,6 +24,7 @@ from backend import env
 from backend.components.dbresource.client import DBResourceApi
 from backend.configuration.constants import MYSQL_DATA_RESTORE_TIME, DBType
 from backend.db_meta.enums import ClusterType, InstanceInnerRole, VersionPhase
+from backend.db_meta.enums.comm import SystemTagEnum
 from backend.db_meta.models import Cluster
 from backend.db_package.exceptions import DBPackageBaseException
 from backend.db_package.models import Package
@@ -44,6 +46,7 @@ from backend.flow.plugins.components.collections.common.add_alarm_shield import 
 from backend.flow.plugins.components.collections.common.delay import DelayComponent
 from backend.flow.plugins.components.collections.common.external_service import ExternalServiceComponent
 from backend.flow.plugins.components.collections.common.pause import PauseComponent
+from backend.flow.plugins.components.collections.common.sa_idle_check import CheckMachineIdleComponent
 from backend.flow.plugins.components.collections.common.transfer_host_service import TransferHostServiceComponent
 from backend.flow.plugins.components.collections.mysql.exec_actuator_script import ExecuteDBActuatorScriptComponent
 from backend.flow.plugins.components.collections.mysql.exec_switch_for_source_act import (
@@ -56,7 +59,10 @@ from backend.flow.plugins.components.collections.mysql.mysql_exercise_binlog_que
     MysqlExerciseBinlogDownloadComponent,
     MysqlExerciseBinlogQueryComponent,
 )
-from backend.flow.plugins.components.collections.mysql.mysql_os_init import CleanDataBakDirComponent
+from backend.flow.plugins.components.collections.mysql.mysql_os_init import (
+    CleanDataBakDirComponent,
+    CleanDbExporterComponent,
+)
 from backend.flow.plugins.components.collections.mysql.trans_flies import TransFileComponent
 from backend.flow.utils.mysql.act_payload.mysql.peripheraltools import PeripheralToolsPayload
 from backend.flow.utils.mysql.common.mysql_cluster_info import get_version_and_charset
@@ -286,6 +292,7 @@ class MySQLRollbackExerciseFlow(object):
                 skip_install_bk_plugin=True,
                 # 演练临时实例不接入 dbha，标准化子流程去掉「探针升级」
                 with_probe=False,
+                builtin_cluster_tags=(SystemTagEnum.EXERCISE,),
             )
         )
         sub_pipeline.add_sub_pipeline(self._build_reinstall_v2_dbbackup_subflow(cluster_class))
@@ -417,21 +424,28 @@ class MySQLRollbackExerciseFlow(object):
                 "delay_seconds": 100,
             },
         )
-        # 退还资源到资源池
-        import_data = {
-            "resource_type": "mysql",
-            "for_biz": self.rollback_to_bk_biz_id,
-            "bk_biz_id": get_resource_biz(),
-            "hosts": [
-                {
-                    "ip": self.rollback_host["ip"],
-                    "host_id": self.rollback_host["bk_host_id"],
+        sub_pipeline.add_act(
+            act_name=_("清理 db exporter"),
+            act_component_code=CleanDbExporterComponent.code,
+            kwargs={
+                "bk_biz_id": get_resource_biz(),
+                "bk_cloud_id": self.rollback_host["bk_cloud_id"],
+                "exec_ip": self.rollback_host["ip"],
+            },
+        )
+
+        # 清理备份目录前先通过标准运维确认临时主机已空闲
+        if env.SA_CHECK_TEMPLATE_ID:
+            sub_pipeline.add_act(
+                act_name=_("sa空闲检查[{}]").format(self.rollback_host["ip"]),
+                act_component_code=CheckMachineIdleComponent.code,
+                kwargs={
+                    "ips": [self.rollback_host["ip"]],
                     "bk_cloud_id": self.rollback_host["bk_cloud_id"],
-                }
-            ],
-            "labels": self.labels,
-            "operator": "system",
-        }
+                    "bk_biz_id": get_resource_biz(),
+                },
+            )
+
         # 清理数据备份目录
         sub_pipeline.add_act(
             act_name=_("清理数据备份目录"),
@@ -454,6 +468,20 @@ class MySQLRollbackExerciseFlow(object):
             },
         )
         # 机器归还到资源池
+        import_data = {
+            "resource_type": "mysql",
+            "for_biz": self.rollback_to_bk_biz_id,
+            "bk_biz_id": get_resource_biz(),
+            "hosts": [
+                {
+                    "ip": self.rollback_host["ip"],
+                    "host_id": self.rollback_host["bk_host_id"],
+                    "bk_cloud_id": self.rollback_host["bk_cloud_id"],
+                }
+            ],
+            "labels": self.labels,
+            "operator": "system",
+        }
         sub_pipeline.add_act(
             act_name=_("机器归还到资源池"),
             act_component_code=ExternalServiceComponent.code,

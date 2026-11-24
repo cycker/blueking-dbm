@@ -10,6 +10,7 @@
 
 ## A 类：命中即修
 
+- [单据详情与提单入口对齐并复用同族展示](doc/ticket-detail-entry-alignment.md) —— 新增或修改 `ticket-center/common/ticket-detail/components/task-info/com-factory/**`，涉及 `backupinfo` 或目标规格展示
 - [validate 失败走 reject，不 resolve `false`](doc/validate-failure-contract.md) —— 用到 `DbForm` / `EditableTable` 的
   `.validate()`，且返回值被当布尔判断
 - [分页组件不认 `current`，必须显式绑 `:model-value`](doc/pagination-model-value.md) —— `<BkPagination>` /
@@ -26,12 +27,15 @@
   `components/{cluster-selector,host-selector,instance-selector-new,cluster-resource-selector,machine-resource-selector}/**`
   的弹窗外壳 / PanelTab / 表格容器 / 取值语义，或新写「左表格 + 右结果预览」选择器
 - [组件目录必须 kebab-case](doc/component-dir-kebab-case.md) —— 本次新建或重命名带 `Index.vue` 的组件目录
-- [表格列宽优先 min-width，取值落在约定档位](doc/table-column-width.md) —— 本次新增或改了
-  `TableColumn` 的 `width` / `min-width`（不含 `EditableColumn`）
-- [有样式的容器不能由 `$slots.x` 决定渲染](doc/slot-wrapper-container.md) —— 改 `components/bkui-vue/**`
-  里带 class 的 `v-if="$slots.xxx"` 容器，或给自研基础组件新增插槽出口
-- [BkComposeFormItem 里放本地 Db* 组件，第二个控件会掉到下一行](doc/compose-form-item-db-component.md)
-  —— 往 `<BkComposeFormItem>` 里放 `DbSelect` / `DbInput` / `DbTagInput`，或用它做「输入 + 单位」这类并排布局
+- [表格列宽优先 min-width，取值落在约定档位](doc/table-column-width.md) —— 本次新增或改了 `TableColumn` 的 `width` /
+  `min-width`（不含 `EditableColumn`）
+- [有样式的容器不能由 `$slots.x` 决定渲染](doc/slot-wrapper-container.md) —— 改 `components/bkui-vue/**` 里带 class 的
+  `v-if="$slots.xxx"` 容器，或给自研基础组件新增插槽出口
+- [BkComposeFormItem 里放本地 Db* 组件，第二个控件会掉到下一行](doc/compose-form-item-db-component.md) —— 往
+  `<BkComposeFormItem>` 里放 `DbSelect` / `DbInput` / `DbTagInput`，或用它做「输入 + 单位」这类并排布局
+- [单据详情里的改单数据（内容版本、改单记录）走 props，不用 provide / inject](doc/ticket-modify-data-props.md) —— 改
+  `views/ticket-center/common/action-confirm/**` 或 `views/ticket-center/common/ticket-detail/**` 里提交
+  `version`、使用改单记录的代码，或新增流程类型入口 / 流程状态组件 / 待办类型
 
 ## B 类：只报告，改法未定
 

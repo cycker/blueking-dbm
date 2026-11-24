@@ -57,6 +57,22 @@ class TestQuerySwitchQueue:
             "switch_finished_time": END,
         }
 
+    def test_combined_version_uses_v2_client(self):
+        with patch.object(
+            mod.HADBApiV2, "switch_queue", return_value={"code": 0, "message": "ok", "data": [RECORD]}
+        ) as v2, patch.object(mod.HADBApi, "switch_queue") as v1:
+            code, msg, data = mod.query_switch_queue(
+                "v1,v2", 3, START, END, extra_v1_args={"cloud_id": 0, "ip": "1.1.1.1"}
+            )
+
+        assert (code, msg, data) == (0, "ok", [RECORD])
+        v1.assert_not_called()
+        assert set(v2.call_args.kwargs["params"]["query_args"]) == {
+            "app",
+            "switch_start_time",
+            "switch_finished_time",
+        }
+
     def test_missing_data_returns_empty_list(self):
         with patch.object(mod.HADBApiV2, "switch_queue", return_value={"code": 1, "message": "bad", "data": None}):
             assert mod.query_switch_queue("v2", 3, START, END) == (1, "bad", [])
@@ -76,5 +92,76 @@ class TestQuerySwitchQueue:
             assert v2.max_retry_times == 3
 
 
-def test_get_dbha_v2_service_ips_stub_returns_empty():
-    assert mod.get_dbha_v2_service_ips(0, 1) == []
+class TestGetDbhaV2ServiceIps:
+    def test_returns_deduped_top_level_ips(self):
+        resp = {
+            "code": 0,
+            "message": "",
+            "data": {
+                "servers": [{"role": "admin", "ips": ["2.2.2.2"]}],
+                "ips": ["2.2.2.2", "3.3.3.3", "2.2.2.2", ""],
+            },
+        }
+        with patch.object(mod.HADBApiV2, "ha_servers", return_value=resp) as ha_servers:
+            assert mod.get_dbha_v2_service_ips(0, 1) == ["2.2.2.2", "3.3.3.3"]
+
+        ha_servers.assert_called_once_with(params={}, raw=True)
+
+    def test_falls_back_to_servers_ips_when_top_level_ips_missing(self):
+        resp = {
+            "code": 0,
+            "message": "",
+            "data": {
+                "servers": [
+                    {"role": "admin", "ips": ["2.2.2.2"]},
+                    {"role": "analysis", "ips": ["2.2.2.2", "3.3.3.3"]},
+                ],
+                "ips": [],
+            },
+        }
+        with patch.object(mod.HADBApiV2, "ha_servers", return_value=resp):
+            assert mod.get_dbha_v2_service_ips(0, 1) == ["2.2.2.2", "3.3.3.3"]
+
+    @pytest.mark.parametrize(
+        "resp",
+        [
+            {"code": 1, "message": "bad", "data": {"ips": ["2.2.2.2"]}},
+            {"code": 0, "message": "", "data": {"servers": [], "ips": []}},
+            {"code": 0, "message": "", "data": None},
+            None,
+        ],
+    )
+    def test_unusable_response_returns_empty(self, resp):
+        with patch.object(mod.HADBApiV2, "ha_servers", return_value=resp):
+            assert mod.get_dbha_v2_service_ips(0, 1) == []
+
+    def test_request_error_logs_and_returns_empty(self):
+        with patch.object(mod.HADBApiV2, "ha_servers", side_effect=Exception("ha-servers down")), patch.object(
+            mod.logger, "warning"
+        ) as warn:
+            assert mod.get_dbha_v2_service_ips(0, 1) == []
+
+        warn.assert_called_once()
+        assert "ha-servers down" in str(warn.call_args.args[-1])
+
+    def test_invalid_ips_are_discarded_with_warning(self):
+        resp = {
+            "code": 0,
+            "message": "",
+            "data": {
+                "ips": ["2.2.2.2", "2.2.2.2:8089", "bad-host", "3.3.3.3; rm -rf /", "3.3.3.3"],
+            },
+        }
+        with patch.object(mod.HADBApiV2, "ha_servers", return_value=resp), patch.object(mod.logger, "warning") as warn:
+            assert mod.get_dbha_v2_service_ips(0, 1) == ["2.2.2.2", "3.3.3.3"]
+
+        assert warn.call_count == 3
+
+    def test_all_invalid_ips_returns_empty(self):
+        resp = {
+            "code": 0,
+            "message": "",
+            "data": {"ips": ["2.2.2.2:8089", "not-an-ip"]},
+        }
+        with patch.object(mod.HADBApiV2, "ha_servers", return_value=resp):
+            assert mod.get_dbha_v2_service_ips(0, 1) == []

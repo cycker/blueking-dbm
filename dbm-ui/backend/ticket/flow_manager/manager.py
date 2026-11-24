@@ -24,6 +24,7 @@ from backend.ticket.constants import (
     TicketStatus,
     TicketType,
 )
+from backend.ticket.flow_manager.confirm_modify import ConfirmModifyFlow
 from backend.ticket.flow_manager.delivery import DeliveryFlow, DescribeTaskFlow
 from backend.ticket.flow_manager.inner import (
     HCMReplenishResourceTaskFlow,
@@ -41,7 +42,9 @@ from backend.ticket.tasks.ticket_tasks import (
     create_cluster_todo,
     create_dts_destroy_after_migrate,
     create_monitor_grafana,
+    create_mysql_rollback_switch,
     create_recycle_ticket,
+    create_tendb_rollback_switch,
     send_ticket_delivery_info,
 )
 
@@ -50,6 +53,7 @@ SUPPORTED_FLOW_MAP = {
     FlowType.INNER_FLOW.value: InnerFlow,
     FlowType.QUICK_INNER_FLOW.value: QuickInnerFlow,
     FlowType.PAUSE.value: PauseFlow,
+    FlowType.CONFIRM_MODIFY.value: ConfirmModifyFlow,
     FlowType.DELIVERY.value: DeliveryFlow,
     FlowType.IGNORE_RESULT_INNER_FLOW.value: IgnoreResultInnerFlow,
     FlowType.DESCRIBE_TASK.value: DescribeTaskFlow,
@@ -87,9 +91,13 @@ class TicketFlowManager(object):
 
         # 先取下一个流程，再取当前流程，可以根据流程的顺序保证并发的一致性
         # 如果current_flow晚于next_flow，说明流程已经发起
-        is_init_flow = next_flow.id == self.ticket.flows.first().id
+        # 按 next_flow 链表在内存中排序后，用位置索引比较，兼容存量数据(无标记时退化为按 id)
+        ordered_flows = self.ticket.ordered_flows()
+        flow_index = {flow.id: idx for idx, flow in enumerate(ordered_flows)}
+        first_flow = ordered_flows[0] if ordered_flows else None
+        is_init_flow = first_flow is not None and next_flow.id == first_flow.id
 
-        if current_flow.id >= next_flow.id and not is_init_flow:
+        if flow_index.get(current_flow.id, 0) >= flow_index.get(next_flow.id, 0) and not is_init_flow:
             logger.error(_("流程非预期：当前流程晚于下一个流程"))
             return
 
@@ -166,9 +174,22 @@ class TicketFlowManager(object):
             if self.ticket.ticket_type in DTS_MIGRATE_TICKET_TYPES:
                 create_dts_destroy_after_migrate.apply_async(args=(self.ticket.id,))
 
+        # 新机回档单据的最后一个人工确认节点执行通过后，自动发起构造回档切换单据
+        if target_status == TicketStatus.SUCCEEDED:
+            if self.ticket.ticket_type == TicketType.TENDBCLUSTER_ROLLBACK_NEW_HOST:
+                create_tendb_rollback_switch.apply_async(args=(self.ticket.id,))
+            elif self.ticket.ticket_type == TicketType.MYSQL_ROLLBACK_NEW_HOST:
+                create_mysql_rollback_switch.apply_async(args=(self.ticket.id,))
+
         # 如果是部署类单据，异常终止要联动回收主机
+        # 新机构造回档类单据的机器回收属于集群下架范畴，源集群/目标集群是否保留由用户自己决定，这里不做自动回收
+        recycle_skip_ticket_types = [
+            TicketType.TENDBCLUSTER_ROLLBACK_NEW_HOST,
+            TicketType.MYSQL_ROLLBACK_NEW_HOST,
+        ]
         is_apply = self.ticket.ticket_type in BuilderFactory.apply_ticket_type
-        if target_status == TicketStatus.TERMINATED and is_apply:
+        need_recycle = is_apply and self.ticket.ticket_type not in recycle_skip_ticket_types
+        if target_status == TicketStatus.TERMINATED and need_recycle:
             create_recycle_ticket.apply_async(args=(self.ticket.id, [], TicketType.RECYCLE_APPLY_HOST))
 
         # 如果是集群的禁用、启动、删除、sqlserver重置则处理相对应代办操作

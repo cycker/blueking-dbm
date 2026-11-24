@@ -241,35 +241,51 @@ class TicketTask(object):
         ticket_configs = TicketFlowsConfig.objects.filter(bk_biz_id=PLAT_BIZ_ID)
         ticket_type__config = {config.ticket_type: config for config in ticket_configs}
 
-        def filter_tickets(expire_type):
-            ticket_ids = []
-            flow_filters = None
-            todo_filters = None
+        # 模块级常量：expire_type -> (model_cls, Q 条件)
+        expire_type_filter_map = {
             # 待审批
-            if expire_type == TicketExpireType.ITSM:
-                flow_filters = Q(flow_type=FlowType.BK_ITSM, status=TicketFlowStatus.RUNNING)
+            TicketExpireType.ITSM: (
+                Flow,
+                Q(flow_type=FlowType.BK_ITSM, status=TicketFlowStatus.RUNNING),
+            ),
             # 待确认
-            elif expire_type == TicketExpireType.PAUSE:
-                flow_filters = Q(flow_type=FlowType.PAUSE, status=TicketFlowStatus.RUNNING)
+            TicketExpireType.PAUSE: (
+                Flow,
+                Q(flow_type=FlowType.PAUSE, status=TicketFlowStatus.RUNNING),
+            ),
             # 已失败
-            elif expire_type == TicketExpireType.INNER_FLOW:
-                flow_filters = Q(flow_type__in=FLOW_TASK_TYPES, status=TicketFlowStatus.FAILED)
+            TicketExpireType.INNER_FLOW: (
+                Flow,
+                Q(flow_type__in=FLOW_TASK_TYPES, status=TicketFlowStatus.FAILED),
+            ),
             # 待继续
-            elif expire_type == TicketExpireType.FLOW_TODO:
-                todo_filters = Q(type=TodoType.INNER_APPROVE, status__in=TODO_RUNNING_STATUS)
+            TicketExpireType.FLOW_TODO: (
+                Todo,
+                Q(type=TodoType.INNER_APPROVE, status__in=TODO_RUNNING_STATUS),
+            ),
             # 定时中
-            elif expire_type == TicketExpireType.TIMER:
-                todo_filters = Q(type=TodoType.TIMER, status__in=TODO_RUNNING_STATUS)
+            TicketExpireType.TIMER: (
+                Todo,
+                Q(type=TodoType.TIMER, status__in=TODO_RUNNING_STATUS),
+            ),
             # 待补货
-            elif expire_type == TicketExpireType.RESOURCE_REPLENISH:
-                todo_filters = Q(type=TodoType.RESOURCE_REPLENISH, status__in=TODO_RUNNING_STATUS)
+            TicketExpireType.RESOURCE_REPLENISH: (
+                Todo,
+                Q(type=TodoType.RESOURCE_REPLENISH, status__in=TODO_RUNNING_STATUS),
+            ),
+            # 待确认修改
+            TicketExpireType.CONFIRM_MODIFY: (
+                Todo,
+                Q(type=TodoType.CONFIRM_MODIFY, status__in=TODO_RUNNING_STATUS),
+            ),
+        }
 
-            if flow_filters:
-                ticket_ids = list(Flow.objects.filter(flow_filters).values_list("ticket", flat=True))
-            elif todo_filters:
-                ticket_ids = list(Todo.objects.filter(todo_filters).values_list("ticket", flat=True))
-
-            return ticket_ids
+        def filter_tickets(expire_type):
+            entry = expire_type_filter_map.get(expire_type)
+            if not entry:
+                return []
+            model_cls, filters = entry
+            return list(model_cls.objects.filter(filters).values_list("ticket", flat=True))
 
         def find_expire_flow_tickets(expire_type):
             """获取超时过期的单据"""
@@ -459,6 +475,63 @@ def create_dts_destroy_after_migrate(ticket_id: int):
     _maybe_create_destroy_after_migrate(ticket)
 
 
+def _create_rollback_switch(ticket_id: int, switch_ticket_type: str):
+    """新机回档单据人工确认执行后，自动发起构造回档切换单据，并关联到新机回档单据"""
+    try:
+        new_host_ticket = Ticket.objects.get(id=ticket_id)
+    except Ticket.DoesNotExist:
+        logger.error(_("单据{}不存在，跳过发起构造回档切换单据").format(ticket_id))
+        return
+
+    # 避免任务重试时重复发起
+    if new_host_ticket.details.get("switch_ticket_id"):
+        logger.info(_("单据{}已发起构造回档切换单据{}，跳过").format(ticket_id, new_host_ticket.details["switch_ticket_id"]))
+        return
+
+    apply_details = new_host_ticket.details.get("apply_details") or {}
+    source_cluster_id = new_host_ticket.details["infos"][0]["cluster_id"]
+    # 回档目标集群由单据流程中的部署节点创建，优先取回档节点回填的集群ID
+    destination_cluster_id = new_host_ticket.details.get("target_cluster_id")
+    if not destination_cluster_id:
+        target_cluster = Cluster.objects.filter(name=apply_details.get("cluster_name")).first()
+        if not target_cluster:
+            logger.error(_("单据{}未找到回档目标集群{}，跳过发起构造回档切换单据").format(ticket_id, apply_details.get("cluster_name")))
+            return
+        destination_cluster_id = target_cluster.id
+
+    switch_ticket = Ticket.create_ticket(
+        ticket_type=switch_ticket_type,
+        creator=new_host_ticket.creator,
+        bk_biz_id=new_host_ticket.bk_biz_id,
+        remark=_("单据{}执行完成并确认后，自动发起构造回档切换单据").format(new_host_ticket.id),
+        details={
+            "bk_cloud_id": apply_details.get("bk_cloud_id", 0),
+            "module": apply_details.get("db_module_id"),
+            "infos": [{"source_cluster_id": source_cluster_id, "destination_cluster_id": destination_cluster_id}],
+            "parent_ticket": new_host_ticket.id,
+            "parent_ticket_type": new_host_ticket.ticket_type,
+        },
+        send_msg_config=new_host_ticket.config.get("send_msg_config"),
+        helpers=new_host_ticket.config.get("helpers") or [],
+    )
+
+    # 关联新机回档单据，便于在单据详情直接跳转构造回档切换单据
+    new_host_ticket.add_related_ticket(switch_ticket, desc=_("构造回档切换"), done=True)
+    new_host_ticket.update_details(switch_ticket_id=switch_ticket.id)
+
+
+@shared_task
+def create_tendb_rollback_switch(ticket_id: int):
+    """TenDBCluster 新机回档单据确认执行后，自动发起构造回档切换单据"""
+    _create_rollback_switch(ticket_id, TicketType.TENDBCLUSTER_ROLLBACK_SWITCH)
+
+
+@shared_task
+def create_mysql_rollback_switch(ticket_id: int):
+    """MySQL 新机回档单据确认执行后，自动发起构造回档切换单据"""
+    _create_rollback_switch(ticket_id, TicketType.MYSQL_ROLLBACK_SWITCH)
+
+
 @shared_task
 def create_cluster_todo(ticket_id, cluster_phase):
     from backend.ticket.todos import ClusterDisableTodoContext, TodoActionType
@@ -592,8 +665,12 @@ def send_ticket_delivery_info(ticket_id):
     ticket_dir = f"{env.BK_SAAS_HOST}/ticket/{ticket_id}"
     title = _("【DBM交付】 {}").format(TicketType.get_choice_label(ticket.ticket_type))
 
-    receivers = ticket.config["send_msg_config"]["receiver__username"].split(",")
-    for msg_type in ticket.config["send_msg_config"]["msg_type"]:
+    send_msg_config = ticket.config.get("send_msg_config") or {}
+    receivers = send_msg_config.get("receiver__username", "").split(",") + send_msg_config.get(
+        "default_receiver_username", ""
+    ).split(",")
+    receivers = [receiver for receiver in set(receivers) if receiver]
+    for msg_type in send_msg_config.get("msg_type") or []:
         if msg_type == notify.constants.MsgType.MAIL.value:
             context = get_mail_context(ticket_id, flow_summary, ticket_dir)
             notify.handlers.CmsiHandler(title, context, receivers).send_msg(

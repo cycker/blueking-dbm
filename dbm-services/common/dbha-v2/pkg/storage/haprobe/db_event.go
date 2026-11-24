@@ -75,6 +75,7 @@ const (
 	DbEventNameUptimeFailure                   DbEventName = "dbha_uptime_failure"
 	DbEventNameRedisUnbindProxySuccess         DbEventName = "dbha_redis_unbind_proxy_success"
 	DbEventNameRedisUnbindProxyFailure         DbEventName = "dbha_redis_unbind_proxy_failure"
+	DbEventNameWorkflowAlarm                   DbEventName = "dbha_workflow_alarm"
 )
 
 // DbEventNameMap db event name map
@@ -199,6 +200,34 @@ const (
 
 func (t DbType) String() string {
 	return string(t)
+}
+
+// knownDbTypes is the closed set IsKnown uses.
+var knownDbTypes = map[DbType]struct{}{
+	DbTypeMySql:     {},
+	DbTypeRedis:     {},
+	DbTypeSqlServer: {},
+	DbTypeMongo:     {},
+	DbTypeRiak:      {},
+	DbTypeHdfs:      {},
+	DbTypeEs:        {},
+	DbTypeKafka:     {},
+	DbTypeDoris:     {},
+	DbTypePulsar:    {},
+}
+
+// IsKnown reports whether t is one of the supported database types.
+func (t DbType) IsKnown() bool {
+	_, ok := knownDbTypes[t]
+	return ok
+}
+
+// Normalize maps an unsupported or empty db_type to DbTypeUnknown.
+func (t DbType) Normalize() DbType {
+	if t.IsKnown() {
+		return t
+	}
+	return DbTypeUnknown
 }
 
 // DbEvent Include some exception events

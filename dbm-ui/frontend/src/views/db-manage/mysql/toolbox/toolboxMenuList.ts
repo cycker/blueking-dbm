@@ -28,7 +28,7 @@ export const toolboxMenuList: ToolboxTreeNode[] = [
       },
       {
         dbConsoleValue: 'mysql.toolbox.dataExport',
-        desc: t('把 DB 数据导出为文件'),
+        desc: t('按库表或 SQL 导出数据'),
         id: TicketTypes.MYSQL_DUMP_DATA,
         name: t('数据导出'),
       },
@@ -78,10 +78,10 @@ export const toolboxMenuList: ToolboxTreeNode[] = [
         name: t('构造'),
       },
       {
-        bind: [TicketTypes.MYSQL_FLASHBACK, TicketTypes.MYSQL_ROLLBACK],
+        bind: [TicketTypes.MYSQL_FLASHBACK, TicketTypes.MYSQL_ROLLBACK, TicketTypes.MYSQL_ROLLBACK_NEW_HOST],
         dbConsoleValue: 'mysql.toolbox.flashback',
-        desc: t('在源集群回滚数据'),
-        id: TicketTypes.MYSQL_ROLLBACK,
+        desc: t('按备份记录或指定时间恢复数据'),
+        id: TicketTypes.MYSQL_ROLLBACK_NEW_HOST,
         name: t('回档'),
       },
     ],

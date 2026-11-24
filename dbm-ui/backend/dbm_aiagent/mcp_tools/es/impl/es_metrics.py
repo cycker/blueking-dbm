@@ -15,11 +15,15 @@ from typing import Dict, List, Optional
 
 from django.utils import timezone
 
+from backend import env
 from backend.components import BKMonitorV3Api
 from backend.db_meta.models import Cluster
 from backend.utils.time import timezone2timestamp
 
 logger = logging.getLogger("root")
+
+HEALTH_STATUS_ORDER = ("green", "yellow", "red")
+HEALTH_STATUS_DIMENSION_KEYS = ("color", "status", "health_status")
 
 # 查询模板
 UNIFY_QUERY_PARAMS = {
@@ -49,7 +53,7 @@ UNIFY_QUERY_PARAMS = {
 #    参考 db_monitor/constants.py 中 ClusterType.Es 的容量表达式与 bk_dataview/dashboards/json/es.json
 # 2. ES 自身指标由 dbm_elasticsearch_exporter 采集，数据源前缀
 #    bkmonitor:exporter_dbm_elasticsearch_exporter:*，可用指标包含：
-#      - elasticsearch_cluster_health_status: 集群健康状态(0=green,1=yellow,2=red)
+#      - elasticsearch_cluster_health_status: 集群健康状态（按 color 标签区分 green/yellow/red，value 为 0/1）
 #      - elasticsearch_indices_shards_docs: shard 文档数
 #      - elasticsearch_indices_docs_primary: 主分片文档数
 #      - elasticsearch_indices_store_size_bytes: 存储大小
@@ -66,8 +70,8 @@ UNIFY_QUERY_PARAMS = {
 ES_METRICS_PROMQL = {
     # 1. 集群健康状态（最核心的健康信号）
     "cluster_health_status": {
-        "desc": "集群健康状态(0=green,1=yellow,2=red)",
-        "promql": """max by (cluster_domain) (
+        "desc": "集群健康状态（按 color 标签区分 green/yellow/red，value 为 0/1）",
+        "promql": """max by (cluster_domain, color) (
             bkmonitor:exporter_dbm_elasticsearch_exporter:elasticsearch_cluster_health_status{{cluster_domain="{cluster_domain}"}}
         )""",
     },
@@ -453,6 +457,63 @@ ES_DETAIL_METRICS_PROMQL = {
 }
 
 
+def _extract_health_status(dimensions: Dict) -> Optional[str]:
+    for key in HEALTH_STATUS_DIMENSION_KEYS:
+        raw_value = (dimensions or {}).get(key)
+        if raw_value is None:
+            continue
+
+        status = str(raw_value).strip().lower()
+        if status in HEALTH_STATUS_ORDER:
+            return status
+
+    return None
+
+
+def _is_health_status_active(value) -> bool:
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _pick_worst_health_status(statuses: List[str]) -> Optional[str]:
+    normalized_statuses = [status for status in statuses if status in HEALTH_STATUS_ORDER]
+    if not normalized_statuses:
+        return None
+
+    return max(normalized_statuses, key=HEALTH_STATUS_ORDER.index)
+
+
+def _build_cluster_health_summary(metric_data: Dict) -> Dict:
+    latest_candidates: List[str] = []
+    worst_candidates: List[str] = []
+
+    for series in metric_data.get("series") or []:
+        status = _extract_health_status(series.get("dimensions") or {})
+        if not status:
+            continue
+
+        # query_es_metrics 对外输出统一使用 data_points（下划线命名）
+        data_points = series.get("data_points") or []
+        if not data_points:
+            continue
+
+        latest_value = data_points[-1][0]
+        if _is_health_status_active(latest_value):
+            latest_candidates.append(status)
+        if any(point and _is_health_status_active(point[0]) for point in data_points):
+            worst_candidates.append(status)
+
+    latest_status = _pick_worst_health_status(latest_candidates)
+    worst_status = _pick_worst_health_status(worst_candidates)
+
+    return {
+        "latest_status": latest_status or "unknown",
+        "worst_status": worst_status or "unknown",
+    }
+
+
 def _build_series_statistics(datapoints: List[List]) -> Optional[Dict]:
     latest_value = datapoints[-1][0] if datapoints else None
     values = [point[0] for point in datapoints if point[0] is not None]
@@ -500,14 +561,13 @@ def _build_aggregate_statistics(series_list: List[Dict]) -> Optional[Dict]:
 
 
 def _query_aggregate_statistics(
-    bk_biz_id: int,
     promql: str,
     start_time: datetime,
     end_time: datetime,
     metric_desc: str,
 ) -> Optional[Dict]:
     query_params = copy.deepcopy(UNIFY_QUERY_PARAMS)
-    query_params["bk_biz_id"] = bk_biz_id
+    query_params["bk_biz_id"] = env.DBA_APP_BK_BIZ_ID
     query_params["start_time"] = int(timezone2timestamp(start_time))
     query_params["end_time"] = int(timezone2timestamp(end_time))
     query_params["query_configs"][0]["promql"] = promql
@@ -564,7 +624,7 @@ def query_es_detail_metrics(
     promql = metric_config["promql"].format(cluster_domain=cluster_domain, top_n=top_n)
 
     query_params = copy.deepcopy(UNIFY_QUERY_PARAMS)
-    query_params["bk_biz_id"] = bk_biz_id
+    query_params["bk_biz_id"] = env.DBA_APP_BK_BIZ_ID
     query_params["start_time"] = int(timezone2timestamp(start_time))
     query_params["end_time"] = int(timezone2timestamp(end_time))
     query_params["query_configs"][0]["promql"] = promql
@@ -676,7 +736,8 @@ def query_es_metrics(
         promql = metric_config["promql"].format(cluster_domain=cluster_domain)
 
         query_params = copy.deepcopy(UNIFY_QUERY_PARAMS)
-        query_params["bk_biz_id"] = bk_biz_id
+        # 集群校验使用调用方业务，监控查询使用统一的 DBA 数据空间。
+        query_params["bk_biz_id"] = env.DBA_APP_BK_BIZ_ID
         query_params["start_time"] = start_timestamp
         query_params["end_time"] = end_timestamp
         query_params["query_configs"][0]["promql"] = promql
@@ -773,7 +834,6 @@ def get_es_performance_summary(
 
     metrics = metrics_data.get("metrics", {})
     datanode_jvm_stats = _query_aggregate_statistics(
-        bk_biz_id=bk_biz_id,
         promql="""(
             max by (cluster_domain, name) (
                 bkmonitor:exporter_dbm_elasticsearch_exporter:elasticsearch_jvm_memory_used_bytes{{
@@ -800,33 +860,13 @@ def get_es_performance_summary(
         stats = metrics.get(metric_type, {}).get("aggregate_statistics") or {}
         return stats.get(key, default)
 
-    # 集群健康状态解读：0=green,1=yellow,2=red
-    health_latest = stat_of("cluster_health_status", "latest")
-    health_max = stat_of("cluster_health_status", "max")
-    health_status_map = {0: "green", 1: "yellow", 2: "red"}
-
-    def resolve_health_status(status_code):
-        if status_code is None:
-            return "unknown"
-
-        try:
-            return health_status_map.get(int(round(status_code)), "unknown")
-        except (TypeError, ValueError):
-            return "unknown"
-
-    latest_status = resolve_health_status(health_latest)
-    worst_status = resolve_health_status(health_max)
+    health_summary = _build_cluster_health_summary(metrics.get("cluster_health_status", {}))
 
     return {
         "cluster_domain": cluster_domain,
         "time_range": f"最近{days}天",
-        # 健康摘要：ES 运维核心信号
-        "health_summary": {
-            "latest_status": latest_status,
-            "worst_status": worst_status,
-            "latest_status_code": health_latest,
-            "worst_status_code": health_max,
-        },
+        # 健康摘要：状态来自 color 标签，value=1 表示命中对应颜色。
+        "health_summary": health_summary,
         # 数据规模摘要
         "data_summary": {
             "docs_primary_latest": stat_of("indices_docs_primary", "latest"),

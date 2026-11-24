@@ -12,9 +12,8 @@ from typing import Iterable, List
 
 from backend.configuration.constants import DBType
 from backend.db_meta.enums.version_phase import PkgSeries, VersionPhase
-from backend.db_meta.models.db_version import DBVersion, Distribution, VersionSeries
 from backend.db_package.constants import PackageType
-from backend.db_package.models import Package
+from backend.db_package.models import DBVersion, Distribution, Package, VersionSeries
 from backend.db_services.ipchooser.constants import BkOsType
 
 _AUDIT = {"creator": "admin", "updater": "admin"}
@@ -105,6 +104,56 @@ def seed_redis_v2_release_packages(pkg_specs: Iterable = REDIS_V2_RELEASE_PKG_SP
         )
         for pkg_type, series, name, full_version in pkg_specs
     ]
+
+
+def create_redis_package(
+    name: str,
+    pkg_type: str = PackageType.Redis.value,
+    series: str = "Redis-6",
+    *,
+    full_version: str = None,
+    phase: str = None,
+    version_name: str = None,
+    enable: bool = True,
+    version_enable: bool = True,
+    recommend: bool = False,
+    priority: int = 0,
+    pkg_version: str = None,
+    distribution: str = None,
+) -> Package:
+    """phase 为空时写入未关联 db_version 的存量 V1 介质; distribution 需以 test- 开头以便清理"""
+    db_version = None
+    if phase:
+        dist, _ = Distribution.objects.get_or_create(
+            db_type=DBType.Redis.value,
+            pkg_type=pkg_type,
+            name=distribution or f"test-{pkg_type}",
+            defaults={"engine": "", **_AUDIT},
+        )
+        series_obj, _ = VersionSeries.objects.get_or_create(distribution=dist, name=series, defaults=_AUDIT)
+        db_version = DBVersion.objects.create(
+            full_version=full_version,
+            name=version_name or name,
+            version_series=series_obj,
+            phase=phase,
+            enable=version_enable,
+            recommend=recommend,
+            **_AUDIT,
+        )
+    return Package.objects.create(
+        name=name,
+        version=pkg_version or series,
+        pkg_type=pkg_type,
+        db_type=DBType.Redis.value,
+        path=f"/tmp/{name}",
+        size=0,
+        md5="",
+        enable=enable,
+        priority=priority,
+        db_version=db_version,
+        permit_os_type=BkOsType.LINUX.value,
+        **_AUDIT,
+    )
 
 
 def clear_mysql_v2_release_packages() -> None:

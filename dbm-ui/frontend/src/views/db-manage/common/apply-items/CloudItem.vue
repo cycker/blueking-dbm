@@ -19,8 +19,8 @@
     <DbSelect
       class="item-input"
       :clearable="false"
+      :disabled="isAdjustApply"
       filterable
-      :input-search="false"
       :loading="isLoading"
       :model-value="modelValue"
       @change="handleChange">
@@ -38,6 +38,8 @@
 
   import { getCloudList } from '@services/source/ipchooser';
 
+  import { useTicketModifyState } from '@hooks';
+
   interface Props {
     modelValue: number | string;
   }
@@ -50,6 +52,8 @@
   const emits = defineEmits<Emits>();
 
   const { t } = useI18n();
+  // 调整申请模式只放开资源申请条件，本项只读
+  const isAdjustApply = Boolean(useTicketModifyState()?.isAdjustApply);
 
   const cloudList = shallowRef<ServiceReturnType<typeof getCloudList>>([]);
   const isLoading = ref(true);

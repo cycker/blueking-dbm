@@ -290,8 +290,8 @@ func (w *Workflow) CheckBusinessWithBizID(ctx context.Context, bizId int) error 
 		return err
 	}
 
-	// Whitelist filter for scan: only instances in whitelisted clusters are probed.
-	// This step is independent of the later t_skip_dbinstance-based skip filtering in RunBusinessChecks.
+	// Optional whitelist filter for scan (enableWhiteListForScan). Independent of
+	// the later t_skip_dbinstance-based skip filtering in RunBusinessChecks.
 	if err := w.filterByWhitelistForScan(ctx, bizId, bizMeta); err != nil {
 		return err
 	}
@@ -365,7 +365,7 @@ func (w *Workflow) ScanBusinesses(ctx context.Context) {
 				}
 
 				logger.Warn("failed to check the business, bizId: %d", bizId)
-				w.alarm.TriggerWithBizId(bizId, err.Error())
+				w.alarm.TriggerWorkflowAlarm(bizId, err.Error())
 			}, safe.WithLabel("ScanBusinesses"))
 		}(bizID)
 	}
@@ -712,7 +712,7 @@ func (w *Workflow) handleNotifyGroup(
 			FormatInstanceNotifySummary(group.Instances))
 	}
 	logger.Info("%s", log)
-	w.alarm.TriggerWithBizId(group.BkBizID, log)
+	w.alarm.TriggerWorkflowAlarm(group.BkBizID, log)
 }
 
 func (w *Workflow) handleStrategySwitch(
@@ -743,12 +743,14 @@ func (w *Workflow) handleStrategySwitch(
 	logger.Info("trigger switching by strategyId: %d, switchId: %s, dbType: %s, cloudId: %d, instances: %d",
 		strategy.ID, req.SwitchID, group.DbType, group.BkCloudID, len(group.Instances))
 
-	// Report the triggering switching instance total
-	if err := apm.TriggerSwitchingInstanceTotal.AddWithLabels(map[string]string{
+	// Report the number of instances requested for switching, before the switch executes.
+	if err := apm.SwitchingRequestedInstanceTotal.AddWithLabels(map[string]string{
+		apm.MetricLabelDbType:        req.DbType.Normalize().String(),
+		apm.MetricLabelActionScope:   req.ActionScope.Normalize().String(),
 		haapm.MetricLabelServiceID:   w.myServiceID,
 		haapm.MetricLabelServiceName: apm.MetricServerName,
 	}, float64(len(req.InstData))); err != nil {
-		logger.Warn("failed to update switching instance total metric, errmsg: %s", err)
+		logger.Warn("failed to update switching requested instance total metric, errmsg: %s", err)
 	}
 
 	// Build the switching snapshot data
@@ -844,7 +846,7 @@ func (w *Workflow) reportMetadataUpdatedStats(ctx context.Context) {
 		if e := apm.DbmMetadataUpdatedCount.SetWithLabels(map[string]string{
 			haapm.MetricLabelServiceID:   w.myServiceID,
 			haapm.MetricLabelServiceName: apm.MetricServerName,
-			apm.MetricLabelDbType:        normalizeDbType(item.DbType).String(),
+			apm.MetricLabelDbType:        item.DbType.Normalize().String(),
 		}, float64(item.Count)); e != nil {
 			logger.Warn("failed to report dbm_metadata_updated_count, dbType: %s, errmsg: %s", item.DbType, e)
 		}
@@ -870,7 +872,7 @@ func (w *Workflow) reportStatusUpdatedStats(ctx context.Context) {
 		labels := map[string]string{
 			haapm.MetricLabelServiceID:   w.myServiceID,
 			haapm.MetricLabelServiceName: apm.MetricServerName,
-			apm.MetricLabelDbType:        normalizeDbType(item.DbType).String(),
+			apm.MetricLabelDbType:        item.DbType.Normalize().String(),
 			apm.MetricLabelHarvestType:   string(normalizeHarvestType(item.HarvestType)),
 		}
 		if e := apm.DbhaDataStatusUpdatedCount.SetWithLabels(labels,
@@ -903,19 +905,11 @@ func (w *Workflow) reportStatusIPActiveStats(ctx context.Context) {
 		if e := apm.DbhaDataStatusActiveIPCount.SetWithLabels(map[string]string{
 			haapm.MetricLabelServiceID:   w.myServiceID,
 			haapm.MetricLabelServiceName: apm.MetricServerName,
-			apm.MetricLabelDbType:        normalizeDbType(item.DbType).String(),
+			apm.MetricLabelDbType:        item.DbType.Normalize().String(),
 		}, float64(item.Count)); e != nil {
 			logger.Warn("failed to report dbha_data_status_active_ip_count, dbType: %s, errmsg: %s", item.DbType, e)
 		}
 	}
-}
-
-// normalizeDbType maps an empty db_type to DbTypeUnknown so that metrics never expose an empty label.
-func normalizeDbType(dbType haprobe.DbType) haprobe.DbType {
-	if dbType == haprobe.DbTypeNone {
-		return haprobe.DbTypeUnknown
-	}
-	return dbType
 }
 
 // normalizeHarvestType maps a missing harvest_type to the default collection group, matching

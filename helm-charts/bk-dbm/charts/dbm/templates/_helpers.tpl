@@ -115,6 +115,10 @@ environment variables
 {{- printf "%s-%s-%d"  (include "dbm.fullname" .) "db-apigw-init" .Release.Revision }}
 {{- end }}
 
+{{- define "dbm.aidevInitJobName" -}}
+{{- printf "%s-%s-%d"  (include "dbm.fullname" .) "db-aidev-init" .Release.Revision }}
+{{- end }}
+
 {{- define "dbm.migration.image" -}}
 {{- $registryName := .image.registry -}}
 {{- if not .image.registry -}}
@@ -183,6 +187,17 @@ initContainers:
       - {{ include "dbm.migrateJobName" . }}
     resources:
       {{- toYaml .Values.initJob.resources | nindent 6 }}
+{{- end }}
+
+{{- define "dbm.initContainersWaitForApigw" -}}
+- name: check-apigw-init-job
+  image: {{ include "dbm.migration.k8sWaitFor.image" . }}
+  imagePullPolicy: {{ .Values.image.pullPolicy }}
+  args:
+    - job
+    - {{ include "dbm.apigwInitJobName" . }}
+  resources:
+    {{- toYaml .Values.initJob.resources | nindent 4 }}
 {{- end }}
 
 {{- define "dbm.initContainerMediumInstall" -}}
@@ -295,4 +310,7 @@ Return the appropriate apiVersion for Horizontal Pod Autoscaler.
 {{- else -}}
 {{- print "autoscaling/v2" -}}
 {{- end -}}
+{{- end -}}
+{{- define "dbm.aidev-api.fullname" -}}
+{{- printf "%s-aidev-api" (include "dbm.fullname" . | trunc 53 | trimSuffix "-") -}}
 {{- end -}}

@@ -34,6 +34,7 @@ class TodoType(StrStructuredEnum):
 
     ITSM = EnumField("ITSM", _("主流程-单据审批"))
     APPROVE = EnumField("APPROVE", _("主流程-人工确认"))
+    CONFIRM_MODIFY = EnumField("CONFIRM_MODIFY", _("主流程-待确认修改"))
     INNER_FAILED = EnumField("INNER_FAILED", _("主流程-失败后待确认"))
     INNER_APPROVE = EnumField("INNER_APPROVE", _("流程待继续-人工确认"))
     RESOURCE_REPLENISH = EnumField("RESOURCE_REPLENISH", _("资源池补货"))
@@ -54,6 +55,7 @@ class CountType(StrStructuredEnum):
     TODO = EnumField("TODO", _("待我确认执行"))
     INNER_TODO = EnumField("INNER_TODO", _("待我继续"))
     RESOURCE_REPLENISH = EnumField("RESOURCE_REPLENISH", _("待我补货"))
+    CONFIRM_PENDING = EnumField("CONFIRM_PENDING", _("待我确认修改"))
     FAILED = EnumField("FAILED", _("失败待处理"))
     DONE = EnumField("DONE", _("我的已办"))
     SELF_MANAGE = EnumField("SELF_MANAGE", _("我负责的业务"))
@@ -94,6 +96,7 @@ class TicketStatus(StrStructuredEnum):
 
     PENDING = EnumField("PENDING", _("等待中"))
     APPROVE = EnumField("APPROVE", _("待审批"))
+    CONFIRM_PENDING = EnumField("CONFIRM_PENDING", _("待确认修改"))
     RESOURCE_REPLENISH = EnumField("RESOURCE_REPLENISH", _("待补货"))
     TODO = EnumField("TODO", _("待执行"))
     TIMER = EnumField("TIMER", _("定时中"))
@@ -111,6 +114,7 @@ class TicketStatus(StrStructuredEnum):
 # 如果有改动需要确认是否会影响自愈调度
 TICKET_RUNNING_STATUS_SET = [
     TicketStatus.APPROVE,
+    TicketStatus.CONFIRM_PENDING,
     TicketStatus.TODO,
     TicketStatus.RESOURCE_REPLENISH,
     TicketStatus.RUNNING,
@@ -121,6 +125,7 @@ TICKET_RUNNING_STATUS_SET = [
 # 单据[包含TODO]的状态合集
 TICKET_TODO_STATUS_SET = [
     TicketStatus.APPROVE,
+    TicketStatus.CONFIRM_PENDING,
     TicketStatus.TODO,
     TicketStatus.RESOURCE_REPLENISH,
     TicketStatus.FAILED,
@@ -279,7 +284,9 @@ class TicketType(StrStructuredEnum):
     MYSQL_DATA_REPAIR = TicketEnumField("MYSQL_DATA_REPAIR", _("MySQL 数据修复"))
     MYSQL_FLASHBACK = TicketEnumField("MYSQL_FLASHBACK", _("MySQL 闪回"), _("数据恢复"), register_iam=True)
     MYSQL_ROLLBACK_CLUSTER = TicketEnumField("MYSQL_ROLLBACK_CLUSTER", _("MySQL 定点构造"), _("回档"))
-    MYSQL_ROLLBACK = TicketEnumField("MYSQL_ROLLBACK", _("MySQL 构造回档"), _("回档"))
+    MYSQL_ROLLBACK = TicketEnumField("MYSQL_ROLLBACK", _("MySQL 原地构造回档"), _("回档"))
+    MYSQL_ROLLBACK_NEW_HOST = TicketEnumField("MYSQL_ROLLBACK_NEW_HOST", _("MySQL 新机构造回档"), _("回档"))
+    MYSQL_ROLLBACK_SWITCH = TicketEnumField("MYSQL_ROLLBACK_SWITCH", _("MySQL 构造回档切换"), _("回档"))
     MYSQL_FIXPOINT_NEW_CLUSTER = TicketEnumField("MYSQL_FIXPOINT_NEW_CLUSTER", _("MySQL 数据构造到新集群"), _("构造"))
     MYSQL_FIXPOINT_EXIST_CLUSTER = TicketEnumField("MYSQL_FIXPOINT_EXIST_CLUSTER", _("MySQL 数据构造到已有集群"), _("构造"))
     MYSQL_HA_FULL_BACKUP = TicketEnumField("MYSQL_HA_FULL_BACKUP", _("MySQL 全库备份"), _("备份"), register_iam=True)
@@ -407,7 +414,9 @@ class TicketType(StrStructuredEnum):
     TENDBCLUSTER_FULL_BACKUP = TicketEnumField("TENDBCLUSTER_FULL_BACKUP", _("TenDB Cluster 全库备份"), _("备份"))
     TENDBCLUSTER_ROLLBACK_CLUSTER = TicketEnumField("TENDBCLUSTER_ROLLBACK_CLUSTER", _("TenDB Cluster 定点构造"),
                                                     _("回档"))  # noqa
-    TENDBCLUSTER_ROLLBACK = TicketEnumField("TENDBCLUSTER_ROLLBACK", _("TENDBCLUSTER 构造回档"), _("回档"))
+    TENDBCLUSTER_ROLLBACK = TicketEnumField("TENDBCLUSTER_ROLLBACK", _("TENDBCLUSTER 原地构造回档"), _("回档"))
+    TENDBCLUSTER_ROLLBACK_NEW_HOST = TicketEnumField("TENDBCLUSTER_ROLLBACK_NEW_HOST", _("TENDBCLUSTER 新机构造回档"), _("回档")) # noqa
+    TENDBCLUSTER_ROLLBACK_SWITCH = TicketEnumField("TENDBCLUSTER_ROLLBACK_SWITCH", _("TENDBCLUSTER 构造回档切换"), _("回档")) # noqa
     TENDBCLUSTER_FIXPOINT_NEW = TicketEnumField("TENDBCLUSTER_FIXPOINT_NEW", _("TENDBCLUSTER 数据构造到新集群"),
                                                 _("构造"))
     TENDBCLUSTER_FIXPOINT_EXIST = TicketEnumField("TENDBCLUSTER_FIXPOINT_EXIST", _("TENDBCLUSTER 数据构造到已有集群"),
@@ -720,10 +729,16 @@ class TicketType(StrStructuredEnum):
     K8S_QDRANT_RESTART = TicketEnumField("K8S_QDRANT_RESTART", _("Qdrant 集群重启"))
 
     # VICTORIAMETRICS K8s
-    K8S_VICTORIAMETRICS_APPLY = TicketEnumField("K8S_VICTORIAMETRICS_APPLY", _("VictoriaMetrics 集群部署"))
+    K8S_VICTORIAMETRICS_CLUSTER_APPLY = TicketEnumField(
+        "K8S_VICTORIAMETRICS_CLUSTER_APPLY", _("VictoriaMetrics 标准集群部署")
+    )
+    K8S_VICTORIAMETRICS_SELECT_APPLY = TicketEnumField(
+        "K8S_VICTORIAMETRICS_SELECT_APPLY", _("VictoriaMetrics 查询集群部署")
+    )
     K8S_VICTORIAMETRICS_ENABLE = TicketEnumField("K8S_VICTORIAMETRICS_ENABLE", _("VictoriaMetrics 集群启动"))
     K8S_VICTORIAMETRICS_DISABLE = TicketEnumField("K8S_VICTORIAMETRICS_DISABLE", _("VictoriaMetrics 集群停止"))
     K8S_VICTORIAMETRICS_DELETE = TicketEnumField("K8S_VICTORIAMETRICS_DELETE", _("VictoriaMetrics 集群卸载"))
+    K8S_VICTORIAMETRICS_DESTROY = TicketEnumField("K8S_VICTORIAMETRICS_DESTROY", _("VictoriaMetrics 集群删除"))
     K8S_VICTORIAMETRICS_RESTART = TicketEnumField("K8S_VICTORIAMETRICS_RESTART", _("VictoriaMetrics 集群重启"))
 
     # 资源池
@@ -771,6 +786,8 @@ class FlowType(StrStructuredEnum):
     IGNORE_RESULT_INNER_FLOW = EnumField("IGNORE_RESULT_INNER_FLOW", _("结果忽略执行"))
     # 暂停节点
     PAUSE = EnumField("PAUSE", _("人工确认"))
+    # 确认修改节点，审批人代为修改后由提单人确认
+    CONFIRM_MODIFY = EnumField("CONFIRM_MODIFY", _("修改内容确认"))
     # 交付节点，仅作为流程结束的标志
     DELIVERY = EnumField("DELIVERY", _("交付"))
     # 描述节点，描述触发创建该单据的任务信息
@@ -809,6 +826,9 @@ class FlowContext(StrStructuredEnum):
     ACK = EnumField("ack", _("当前流程是否确认执行"))
     EXPIRE_TIME = EnumField("expire_time", _("超时时间"))
     REMARK = EnumField("remark", _("流程备注"))
+    MODIFY_SUMMARY = EnumField("modify_summary", _("改单说明摘要"))
+    NEXT_FLOW = EnumField("next_flow", _("下一流程ID"))
+    BUILD_TASK_ID = EnumField("build_task_id", _("异步编排任务ID"))
 
 
 class FlowTypeConfig(StrStructuredEnum):
@@ -957,6 +977,14 @@ class OperateNodeActionType(StrStructuredEnum):
     WITHDRAW = EnumField("WITHDRAW", _("撤销单据"))
 
 
+class TicketModifyType(StrStructuredEnum):
+    """单据改单模式"""
+
+    ON_BEHALF = EnumField("ON_BEHALF", _("代为修改"))
+    RE_EDIT = EnumField("RE_EDIT", _("重新编辑"))
+    ADJUST_APPLY = EnumField("ADJUST_APPLY", _("调整申请"))
+
+
 class ItsmApproveMode(IntStructuredEnum):
     OrSign = EnumField(0, _("或签模式"))
     CounterSign = EnumField(1, _("会签模式"))
@@ -976,6 +1004,7 @@ class TicketExpireType(StrStructuredEnum):
     FLOW_TODO = EnumField("flow_todo_expire", _("单据流程todo过期"))  # 待继续
     TIMER = EnumField("timer", _("定时中"))
     RESOURCE_REPLENISH = EnumField("resource_replenish", _("待补货"))
+    CONFIRM_MODIFY = EnumField("confirm_modify", _("待确认修改"))
 
 
 # 【单据超时保护配置】
@@ -986,6 +1015,7 @@ TICKET_EXPIRE_DEFAULT_CONFIG = {
     TicketExpireType.FLOW_TODO: -1,
     TicketExpireType.INNER_FLOW: -1,
     TicketExpireType.RESOURCE_REPLENISH: -1,
+    TicketExpireType.CONFIRM_MODIFY: -1,
 }
 
 FLOW_TYPE__EXPIRE_TYPE_CONFIG = {
@@ -994,6 +1024,7 @@ FLOW_TYPE__EXPIRE_TYPE_CONFIG = {
     FlowType.PAUSE: TicketExpireType.FLOW_TODO,
     FlowType.RESOURCE_APPLY: TicketExpireType.FLOW_TODO,
     FlowType.RESOURCE_BATCH_APPLY: TicketExpireType.FLOW_TODO,
+    FlowType.CONFIRM_MODIFY: TicketExpireType.CONFIRM_MODIFY,
 }
 
 # 根据流程类型来映射单据状态
@@ -1004,6 +1035,7 @@ RUNNING_FLOW__TICKET_STATUS = {
     FlowType.PAUSE: TicketStatus.TODO,
     FlowType.INNER_FLOW: TicketStatus.RUNNING,
     FlowType.TIMER: TicketStatus.TIMER,
+    FlowType.CONFIRM_MODIFY: TicketStatus.CONFIRM_PENDING,
 }
 
 # 特殊审批单据，并非用DBA管理审批，而是覆写审批人员

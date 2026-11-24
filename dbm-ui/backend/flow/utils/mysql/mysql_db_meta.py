@@ -32,7 +32,17 @@ from backend.db_meta.enums import (
     InstanceStatus,
     MachineType,
 )
-from backend.db_meta.models import Cluster, ClusterEntry, Machine, ProxyInstance, StorageInstance, StorageInstanceTuple
+from backend.db_meta.enums.comm import TagType
+from backend.db_meta.models import (
+    Cluster,
+    ClusterEntry,
+    ClusterMonitorTopo,
+    Machine,
+    ProxyInstance,
+    StorageInstance,
+    StorageInstanceTuple,
+    Tag,
+)
 from backend.db_meta.models.extra_process import ExtraProcessInstance
 from backend.db_package.models import Package
 from backend.db_services.mysql.dumper.models import DumperSubscribeConfig
@@ -59,7 +69,7 @@ class MySQLDBMeta(object):
         self.cluster = cluster
         self.bk_biz_id = self.ticket_data["bk_biz_id"]
 
-    def mysql_single_apply(self) -> bool:
+    def mysql_single_apply(self, builtin_cluster_tags=()) -> bool:
         """
         部署mysql单节点版集群，更新db-meta
         支持单台机器属于多个集群录入的场景
@@ -78,6 +88,11 @@ class MySQLDBMeta(object):
             region=self.ticket_data["city"],
             zone_list=self.ticket_data.get("zone_list", []),
         )
+        for tag_key in builtin_cluster_tags:
+            builtin_tag = Tag.get_builtin_tag(key=tag_key, value=True, type=TagType.CLUSTER)[0]
+            for cluster_info in self.ticket_data["clusters"]:
+                cluster = Cluster.objects.get(bk_biz_id=self.bk_biz_id, immute_domain=cluster_info["master"])
+                cluster.tags.add(builtin_tag)
         return True
 
     def mysql_ha_apply(self) -> bool:
@@ -1314,52 +1329,123 @@ class MySQLDBMeta(object):
             dst_cluster = Cluster.objects.get(id=self.cluster["destination_cluster_id"])
             source_master_entry = ClusterEntry.objects.get(id=self.cluster["source_master_entry_id"])
             destination_master_entry = ClusterEntry.objects.get(id=self.cluster["destination_master_entry_id"])
-            src_cluster.immute_domain = self.cluster["destination_master_domain"]
-            dst_cluster.immute_domain = self.cluster["source_master_domain"]
-            src_cluster.save()
-            dst_cluster.save()
-            source_master_entry.entry = self.cluster["destination_master_domain"]
-            destination_master_entry.entry = self.cluster["source_master_domain"]
-            source_master_entry.save()
-            destination_master_entry.save()
+
+            src_master_domain = self.cluster["source_master_domain"]
+            dst_master_domain = self.cluster["destination_master_domain"]
+
+            # Cluster.name 没有唯一键约束，直接互换
+            src_cluster.name = self.cluster["destination_cluster_name"]
+            dst_cluster.name = self.cluster["source_cluster_name"]
+
+            # destination_cluster_name = dst_cluster.name
+            # source_cluster_name = src_cluster.name
+            # src_cluster.name = destination_cluster_name
+            # dst_cluster.name = source_cluster_name
+
+            src_cluster.save(update_fields=["name"])
+            dst_cluster.save(update_fields=["name"])
+
+            # Cluster.immute_domain 三步交换，避免唯一键 1062 冲突
+            tmp_src_domain = "__tmp_exchange_{}__{}".format(src_cluster.id, src_master_domain)
+            src_cluster.immute_domain = tmp_src_domain
+            src_cluster.save(update_fields=["immute_domain"])
+
+            dst_cluster.immute_domain = src_master_domain
+            dst_cluster.save(update_fields=["immute_domain"])
+
+            src_cluster.immute_domain = dst_master_domain
+            src_cluster.save(update_fields=["immute_domain"])
+
+            # ClusterEntry(master).entry 三步交换，避免 unique_together(cluster_entry_type, entry) 1062 冲突
+            tmp_src_master_entry = "__tmp_exchange_entry_{}".format(source_master_entry.id)
+            source_master_entry.entry = tmp_src_master_entry
+            source_master_entry.save(update_fields=["entry"])
+
+            destination_master_entry.entry = src_master_domain
+            destination_master_entry.save(update_fields=["entry"])
+
+            source_master_entry.entry = dst_master_domain
+            source_master_entry.save(update_fields=["entry"])
+
             if (
-                src_cluster.cluster_type == ClusterType.TENDBCLUSTER.value
+                src_cluster.cluster_type == ClusterType.TenDBCluster.value
                 or src_cluster.cluster_type == ClusterType.TenDBHA.value
             ):
-                # TenDBHA 一定有从库域名 TENDBCLUSTER 不一定有从库域名
-                if self.cluster["source_slave_entry_id"] > 0:
-                    destination_slave_entry = ClusterEntry.objects.get(id=self.cluster["destination_slave_entry_id"])
-                    destination_slave_entry.entry = self.cluster["source_slave_domain"]
-                    destination_slave_entry.save()
-                if self.cluster["destination_slave_entry_id"] > 0:
-                    source_slave_entry = ClusterEntry.objects.get(id=self.cluster["source_slave_entry_id"])
-                    source_slave_entry.entry = self.cluster["destination_slave_domain"]
-                    source_slave_entry.save()
+                # TenDBHA 一定有从库域名 TenDBCluster 不一定有从库域名
+                src_slave_entry_id = self.cluster["source_slave_entry_id"]
+                dst_slave_entry_id = self.cluster["destination_slave_entry_id"]
+                src_slave_domain = self.cluster.get("source_slave_domain")
+                dst_slave_domain = self.cluster.get("destination_slave_domain")
+
+                if src_slave_entry_id > 0 and dst_slave_entry_id > 0:
+                    # 两边都有从库域名，三步交换避免唯一键冲突
+                    source_slave_entry = ClusterEntry.objects.get(id=src_slave_entry_id)
+                    destination_slave_entry = ClusterEntry.objects.get(id=dst_slave_entry_id)
+
+                    tmp_src_slave_entry = "__tmp_exchange_slave_entry_{}".format(source_slave_entry.id)
+                    source_slave_entry.entry = tmp_src_slave_entry
+                    source_slave_entry.save(update_fields=["entry"])
+
+                    destination_slave_entry.entry = src_slave_domain
+                    destination_slave_entry.save(update_fields=["entry"])
+
+                    source_slave_entry.entry = dst_slave_domain
+                    source_slave_entry.save(update_fields=["entry"])
+                elif src_slave_entry_id > 0:
+                    # 只有源侧有，直接改成目标侧的从库域名（无冲突）
+                    source_slave_entry = ClusterEntry.objects.get(id=src_slave_entry_id)
+                    source_slave_entry.entry = dst_slave_domain
+                    source_slave_entry.save(update_fields=["entry"])
+                elif dst_slave_entry_id > 0:
+                    # 只有目标侧有，直接改成源侧的从库域名（无冲突）
+                    destination_slave_entry = ClusterEntry.objects.get(id=dst_slave_entry_id)
+                    destination_slave_entry.entry = src_slave_domain
+                    destination_slave_entry.save(update_fields=["entry"])
             return True
+
+    def tendb_exchange_add_cc(self):
+        # 移除集群底下的实存储实例和proxy代理层cc模块
+        src_cluster = Cluster.objects.get(id=self.cluster["source_cluster_id"])
+        dst_cluster = Cluster.objects.get(id=self.cluster["destination_cluster_id"])
+        with atomic():
+            ClusterMonitorTopo.objects.filter(cluster_id__in=[src_cluster.id, dst_cluster.id]).delete()
+        src_storages = src_cluster.storageinstance_set.all()
+        src_cc_topo_operator = MysqlCCTopoOperator(src_cluster)
+        src_cc_topo_operator.transfer_instances_to_cluster_module(src_storages, is_increment=True)
+
+        dst_storages = dst_cluster.storageinstance_set.all()
+        dst_cc_topo_operator = MysqlCCTopoOperator(dst_cluster)
+        dst_cc_topo_operator.transfer_instances_to_cluster_module(dst_storages, is_increment=True)
+
+        if (
+            src_cluster.cluster_type == ClusterType.TenDBCluster.value
+            or src_cluster.cluster_type == ClusterType.TenDBHA.value
+        ):
+            src_proxys = src_cluster.proxyinstance_set.all()
+            src_cc_topo_operator.transfer_instances_to_cluster_module(src_proxys, is_increment=True)
+        if (
+            dst_cluster.cluster_type == ClusterType.TenDBCluster.value
+            or dst_cluster.cluster_type == ClusterType.TenDBHA.value
+        ):
+            dst_proxys = dst_cluster.proxyinstance_set.all()
+            dst_cc_topo_operator.transfer_instances_to_cluster_module(dst_proxys, is_increment=True)
+
+        return True
 
     def tendb_exchange_clb(self):
         with atomic():
             src_cluster = Cluster.objects.get(id=self.cluster["source_cluster_id"])
             dst_cluster = Cluster.objects.get(id=self.cluster["destination_cluster_id"])
-            ClusterEntry.objects.filter(
-                cluster=src_cluster,
+            entry_filter = dict(
                 cluster_entry_type__in=[ClusterEntryType.CLB.value, ClusterEntryType.CLBDNS.value],
-                role=ClusterEntryRole.MASTER_ENTRY,
-            ).update(cluster_id=dst_cluster.id)
-            ClusterEntry.objects.filter(
-                cluster=dst_cluster,
-                cluster_entry_type__in=[ClusterEntryType.CLB.value, ClusterEntryType.CLBDNS.value],
-                role=ClusterEntryRole.MASTER_ENTRY,
-            ).update(cluster_id=src_cluster.id)
-            if src_cluster.cluster_type == ClusterType.TENDBCLUSTER.value:
-                ClusterEntry.objects.filter(
-                    cluster=dst_cluster,
-                    cluster_entry_type__in=[ClusterEntryType.CLB.value, ClusterEntryType.CLBDNS.value],
-                    role=ClusterEntryRole.SLAVE_ENTRY,
-                ).update(cluster_id=src_cluster.id)
-                ClusterEntry.objects.filter(
-                    cluster=src_cluster,
-                    cluster_entry_type__in=[ClusterEntryType.CLB.value, ClusterEntryType.CLBDNS.value],
-                    role=ClusterEntryRole.SLAVE_ENTRY,
-                ).update(cluster_id=dst_cluster.id)
-            return True
+                role__in=(ClusterEntryRole.MASTER_ENTRY.value, ClusterEntryRole.SLAVE_ENTRY.value),
+            )
+            # 先冻结两侧要交换的 entry id 列表，避免两次 update 的 WHERE 条件互相命中导致 swap 失效
+            src_entry_ids = list(
+                ClusterEntry.objects.filter(cluster_id=src_cluster.id, **entry_filter).values_list("id", flat=True)
+            )
+            dst_entry_ids = list(
+                ClusterEntry.objects.filter(cluster_id=dst_cluster.id, **entry_filter).values_list("id", flat=True)
+            )
+            ClusterEntry.objects.filter(id__in=src_entry_ids).update(cluster_id=dst_cluster.id)
+            ClusterEntry.objects.filter(id__in=dst_entry_ids).update(cluster_id=src_cluster.id)

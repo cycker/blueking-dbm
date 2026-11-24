@@ -36,7 +36,7 @@ from backend.db_meta.models import AppCache
 from backend.env import DEFAULT_USERNAME
 from backend.exceptions import ApiResultError
 from backend.ticket.constants import TicketStatus, TicketType, TodoStatus
-from backend.ticket.models import Flow, Ticket
+from backend.ticket.models import Flow, Ticket, TicketSnapshot
 from backend.ticket.todos import TodoActionType
 from backend.utils.cache import func_cache_decorator
 
@@ -191,12 +191,20 @@ class BkChatHandler(BaseNotifyHandler):
         if not todo:
             return []
 
+        # 把通知发出时的单据内容版本号写进按钮参数：回调时据此判断单据是否已被改过(卡片内容已过期)，
+        # 老消息的按钮里没有该字段，由 bkchat 回调接口按当前版本补齐
+        version = TicketSnapshot.objects.filter(ticket_id=ticket.id).count()
+
         # 增加回调按钮，执行和终止
         agree_action = {
             "name": _("同意") if ticket.status == TicketStatus.APPROVE else _("确认执行"),
             "color": "green",
             "callback_url": f"{env.BK_DBM_APIGATEWAY}/tickets/bkchat_process_todo/",
-            "callback_data": {"action": TodoActionType.APPROVE.value, "todo_id": todo.id, "params": {}},
+            "callback_data": {
+                "action": TodoActionType.APPROVE.value,
+                "todo_id": todo.id,
+                "params": {"version": version},
+            },
         }
         refuse_action = {
             "name": _("拒绝") if ticket.status == TicketStatus.APPROVE else _("终止单据"),
@@ -205,7 +213,7 @@ class BkChatHandler(BaseNotifyHandler):
             "callback_data": {
                 "action": TodoActionType.TERMINATE.value,
                 "todo_id": todo.id,
-                "params": {"remark": _("使用「蓝鲸审批助手」终止单据")},
+                "params": {"remark": _("使用「蓝鲸审批助手」终止单据"), "version": version},
             },
         }
         return [agree_action, refuse_action]
@@ -741,3 +749,9 @@ def send_msg_for_ai_task_guardian(
     # 可异步发送消息，非阻塞路径默认不抛出异常
     # AI单据值守消息通道专属
     NotifyAdapter(ticket_id, deadline).send_msg_of_ai_task_guardian(ai_result=ai_result, receiver_role=receiver_role)
+
+
+@shared_task
+def send_modify_notify(ticket_id: int, operator: str, mode: str, remark: str):
+    # 改单通知：代为修改/调整申请后通知提单人 TODO 后续产品提出需求再实现具体逻辑
+    logger.info(f"{ticket_id}-{operator}-{mode}-{remark}")

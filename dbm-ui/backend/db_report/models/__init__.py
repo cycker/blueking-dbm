@@ -14,6 +14,7 @@ from .checksum_check_report import ChecksumCheckReport, ChecksumInstance
 from .cluster_portrait_report import ClusterPortraitReport
 from .dbmon_heartbeat_report import DbmonHeartbeatReport
 from .es_account_report import EsAccountReport
+from .es_datanode_attr_report import EsDatanodeAttrReport
 from .es_datanode_report import EsDatanodeReport
 from .es_domain_report import EsDomainReport
 from .es_master_report import EsMasterReport
@@ -25,6 +26,7 @@ from .flow_node_duration_baseline import DistributionType, FlowNodeDurationBasel
 from .flow_node_name_alias import FlowNodeNameAlias, NameMatchSource
 from .flow_node_sample_reject import FlowNodeSampleReject, RejectReason
 from .kafka_affinity_report import KafkaBrokerAffinityReport, KafkaZookeeperAffinityReport
+from .kafka_disk_growth_report import KafkaDiskGrowthReport
 from .meta_check_report import MetaCheckReport
 from .monogdb_check_report import MongodbBackupCheckReport
 from .mysql_backup_progress import MysqlBackupProgress

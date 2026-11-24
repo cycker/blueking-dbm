@@ -51,11 +51,13 @@ class KubernetesBaseListRetrieveResource(query.ListRetrieveResource, KubernetesB
 
     cluster_types = []
     instance_roles = []
-    # 支持部署模式(共享集群/独占集群)下发的集群类型，不在白名单内的集群类型(如VM)不下发 isPublic/bkBizId
+    # 支持部署模式(共享集群/独占集群)下发的集群类型，不在白名单内的集群类型不下发 isPublic/bkBizId
     deploy_mode_cluster_types = [
         ClusterType.K8sQdrantHa,
         ClusterType.K8sSurrealdbHa,
         ClusterType.K8sSurrealdbSingle,
+        ClusterType.K8sVictoriametricsCluster,
+        ClusterType.K8sVictoriametricsSelect,
     ]
     fields = [
         {"name": _("集群名"), "key": "cluster_name"},
@@ -79,9 +81,11 @@ class KubernetesBaseListRetrieveResource(query.ListRetrieveResource, KubernetesB
     @classmethod
     def _enrich_topo_graph_node_port(cls, graph: dict, port: int) -> dict:
         """
-        为拓扑图中所有入口节点（pod 节点）的 node_id 追加 :port 后缀，
+        为拓扑图中入口节点的 node_id 追加 :port 后缀。
 
-        入口节点（node_type 以 "entry_" 开头）追加端口号.
+        入口节点（node_type 以 "entry_" 开头）的 node_id 会同步改写
+        nodes、根 node_id、groups.children_id 以及 lines 的 source/target，
+        保证同一节点在各字段中的 id 一致。
         """
         if not port:
             return graph
@@ -100,21 +104,26 @@ class KubernetesBaseListRetrieveResource(query.ListRetrieveResource, KubernetesB
 
         port_suffix = f":{port}"
 
-        # 2. 更新 nodes 的 node_id: pod_name -> pod_name:port
-        for node in graph.get("nodes", []):
-            node_id = node.get("node_id", "")
+        def _with_port(node_id: str) -> str:
             if node_id in node_ids_to_update:
-                node["node_id"] = f"{node_id}{port_suffix}"
+                return f"{node_id}{port_suffix}"
+            return node_id
 
-        # 3. 更改node_id
-        graph["node_id"] = f"{graph.get('node_id')}{port_suffix}"
+        # 2. 更新 nodes 的 node_id
+        for node in graph.get("nodes", []):
+            node["node_id"] = _with_port(node.get("node_id", ""))
 
-        # 4. 更改groups里的children_id
+        # 3. 根 node_id 若指向入口节点，一并追加端口
+        graph["node_id"] = _with_port(graph.get("node_id") or "")
+
+        # 4. 更改 groups 里的 children_id
         for group in graph.get("groups", []):
-            group["children_id"] = [
-                f"{child_id}{port_suffix}" if child_id in node_ids_to_update else child_id
-                for child_id in group.get("children_id", [])
-            ]
+            group["children_id"] = [_with_port(child_id) for child_id in group.get("children_id", [])]
+
+        # 5. 同步 lines 端点，避免 source/target 仍是未加端口的旧 id
+        for line in graph.get("lines", []):
+            line["source"] = _with_port(line.get("source", ""))
+            line["target"] = _with_port(line.get("target", ""))
 
         return graph
 
@@ -172,7 +181,10 @@ class KubernetesBaseListRetrieveResource(query.ListRetrieveResource, KubernetesB
         cluster_map = {}
         # 注意：必须迭代 cluster_queryset 的副本(.all())，避免提前评估传入父类的同一 QuerySet 对象，
         # 否则父类 _filter_cluster_hook 中对 cluster_queryset 切片会得到 list 而非 QuerySet，导致 prefetch_related 报错
-        for cluster in cluster_queryset.all():
+        # 仅请求当前页的远程数据，分页范围与父类保持一致。
+        page_queryset = cluster_queryset.all()
+        page_queryset = page_queryset[offset:] if limit == -1 else page_queryset[offset : offset + limit]
+        for cluster in page_queryset:
             cluster_detail = KubernetesApi.cluster_detail({"cluster_id": cluster.id}, use_admin=True)
             component_params = {
                 "clusterName": cluster.name,

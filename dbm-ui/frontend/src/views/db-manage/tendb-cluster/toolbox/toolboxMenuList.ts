@@ -28,7 +28,7 @@ export const toolboxMenuList: ToolboxTreeNode[] = [
       },
       {
         dbConsoleValue: 'tendbCluster.toolbox.dataExport',
-        desc: t('把 DB 数据导出为文件'),
+        desc: t('按库表或 SQL 导出数据'),
         id: TicketTypes.TENDBCLUSTER_DUMP_DATA,
         name: t('数据导出'),
       },
@@ -78,10 +78,14 @@ export const toolboxMenuList: ToolboxTreeNode[] = [
         name: t('构造'),
       },
       {
-        bind: [TicketTypes.TENDBCLUSTER_FLASHBACK, TicketTypes.TENDBCLUSTER_ROLLBACK],
+        bind: [
+          TicketTypes.TENDBCLUSTER_FLASHBACK,
+          TicketTypes.TENDBCLUSTER_ROLLBACK,
+          TicketTypes.TENDBCLUSTER_ROLLBACK_NEW_HOST,
+        ],
         dbConsoleValue: 'tendbCluster.toolbox.flashback',
-        desc: t('在源集群回滚数据'),
-        id: TicketTypes.TENDBCLUSTER_ROLLBACK,
+        desc: t('按备份记录或指定时间恢复数据'),
+        id: TicketTypes.TENDBCLUSTER_ROLLBACK_NEW_HOST,
         name: t('回档'),
       },
     ],

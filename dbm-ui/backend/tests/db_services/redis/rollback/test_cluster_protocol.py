@@ -14,6 +14,11 @@ from backend.db_services.redis.rollback.constants import (
     ROLLBACK_PLUS_WRITE_BUFFER_MB,
 )
 from backend.db_services.redis.rollback.exceptions import RollbackPlanError
+from backend.db_services.redis.rollback.issues import (
+    ISSUE_BINLOG_GAP,
+    ISSUE_BINLOG_HEAD_MISSING,
+    ISSUE_KVSTORE_MISMATCH,
+)
 from backend.db_services.redis.rollback.locator import binlog_record
 from backend.db_services.redis.rollback.shards import ShardRef, round_key_from_filename, slot_ranges
 from backend.flow.engine.bamboo.scene.redis.redis_rollback import flow as rollback_flow
@@ -26,6 +31,7 @@ from backend.flow.engine.bamboo.scene.redis.redis_rollback.plan import (
 )
 from backend.flow.engine.bamboo.scene.redis.redis_rollback.planner import RollbackPlanner
 from backend.flow.utils.redis.redis_act_playload import RedisActPayload
+from backend.tests.db_services.redis.rollback import shard_errors
 
 PLUS = ClusterType.TendisPredixyTendisplusCluster.value
 REDIS_CLUSTER = ClusterType.TendisPredixyRedisCluster.value
@@ -118,6 +124,38 @@ def test_plus_binlog_names_carry_kvstore_and_index():
     assert binlog_record(name, "t", 1, "1.1.1.1", 30000, T0)["index"] is None
 
 
+def test_cluster_protocol_source_currency_follows_live_cluster_nodes():
+    from backend.db_services.redis.rollback.shards import ShardResolver, source_is_current
+
+    nodes = "\n".join(
+        [
+            "m1 1.1.1.1:30000@40000 master - 0 0 1 connected 0-5460",
+            "m2 1.1.1.2:30000@40000 master - 0 0 2 connected 5461-10922",
+            "m3 1.1.1.3:30000@40000 master - 0 0 3 connected 10923-16383",
+            "s1 1.1.1.9:30000@40000 myself,slave m1 0 0 1 connected",
+            "",
+        ]
+    )
+    cluster = MagicMock(id=1, bk_cloud_id=0, cluster_type=PLUS)
+    cluster.storageinstance_set.filter.return_value.filter.return_value.first.return_value = MagicMock(
+        ip_port="1.1.1.9:30000"
+    )
+    resolver = ShardResolver(cluster)
+    with patch(
+        "backend.db_services.redis.rollback.shards.PayloadHandler.redis_get_cluster_password",
+        return_value={"redis_password": "pwd"},
+    ), patch("backend.db_services.redis.rollback.shards.DRSApi.redis_rpc", return_value=[{"result": nodes}]) as rpc:
+        current = {ref.shard_value: ref for ref in resolver.from_db_meta()}
+        assert [m["shard_value"] for m in resolver.cluster_shard_map()] == SLOT_SHARDS
+    assert rpc.call_count == 1
+
+    slave_backup = {"source_ip": "1.1.1.9", "server_port": 30000, "source_role": "slave"}
+    master_backup = {"source_ip": "1.1.1.2", "server_port": 30000, "source_role": "master"}
+    assert source_is_current(slave_backup, current["0-5460"]) is True
+    assert source_is_current(master_backup, current["5461-10922"]) is True
+    assert source_is_current({**master_backup, "source_role": "slave"}, current["5461-10922"]) is False
+
+
 def test_slot_ranges_merge_and_drop_migration_markers():
     assert slot_ranges("10651-10923 1365-1637 1638") == "1365-1638,10651-10923"
     assert slot_ranges("0-100 [101->-abcdef]") == "0-100"
@@ -146,18 +184,21 @@ def test_every_kvstore_gets_its_chain():
 def test_kvstore_without_binlogs_names_the_kvstore_and_side():
     _, _, errors = select_kvstore_chains(_chains(kvstores=1), 2, T0, RECOVER_AT)
     assert len(errors) == 1
-    assert errors[0].startswith("kvstore 1:") and "左边界" in errors[0]
+    assert errors[0].message.startswith("kvstore 1:") and "左边界" in errors[0].message
+    assert errors[0].code == ISSUE_BINLOG_HEAD_MISSING and errors[0].data["kvstore"] == 1
 
 
 def test_source_with_more_kvstores_than_the_temp_instance_is_rejected():
     _, _, errors = select_kvstore_chains(_chains(kvstores=3), 2, T0, RECOVER_AT)
-    assert errors == ["源实例有 kvstore [2]，多于临时实例的 2 个 kvstore"]
+    assert [e.message for e in errors] == ["源实例有 kvstore [2]，多于临时实例的 2 个 kvstore"]
+    assert errors[0].code == ISSUE_KVSTORE_MISMATCH
 
 
 def test_allowed_gaps_are_recorded_per_kvstore():
     gapped = {1: ((1, -40), (2, -20), (3, 10), (5, 70))}
     _, _, errors = select_kvstore_chains(_chains(override=gapped), 2, T0, RECOVER_AT)
-    assert "kvstore 1" in errors[0] and "allow_binlog_nonconsecutive" in errors[0]
+    assert "kvstore 1" in errors[0].message and "allow_binlog_nonconsecutive" in errors[0].message
+    assert errors[0].code == ISSUE_BINLOG_GAP and errors[0].data["missing"] == [4]
 
     chain, gaps, errors = select_kvstore_chains(_chains(override=gapped), 2, T0, RECOVER_AT, True)
     assert errors == []
@@ -170,7 +211,7 @@ def test_missing_right_boundary_names_instance_kvstore_side_and_chain_ends():
     result = planner.precheck()
 
     assert result["exist"] is False
-    errors = {shard["shard_value"]: shard["errors"] for shard in result["shards"]}
+    errors = shard_errors(result)
     assert errors["0-5460"] == [] and errors["10923-16383"] == []
     assert len(errors["5461-10922"]) == 1
     error = errors["5461-10922"][0]
@@ -202,7 +243,7 @@ def test_kvstore_count_comes_from_the_cluster_config(kvstorecount):
     kvstorecount.return_value = {"content": {"kvstorecount": "3"}}
     result = _planner(**REPLAY).precheck()
     assert result["exist"] is False
-    assert all("kvstore 2" in shard["errors"][0] for shard in result["shards"])
+    assert all("kvstore 2" in messages[0] for messages in shard_errors(result).values())
     params = kvstorecount.call_args.kwargs["params"]
     assert (params["level_value"], params["conf_file"], params["namespace"]) == (
         "plus.example.db",
@@ -283,7 +324,7 @@ def test_batch_layout_missing_slots_cannot_form_a_cluster():
 def test_cluster_shard_value_must_parse_to_slots():
     result = _planner(cluster_type=REDIS_CLUSTER, shards=["switched-0"]).precheck()
     assert result["exist"] is False
-    assert "slot" in result["shards"][0]["errors"][0]
+    assert "slot" in shard_errors(result)["switched-0"][0]
 
 
 def test_redis_cluster_restores_without_binlogs_and_checks_memory():

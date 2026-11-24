@@ -75,6 +75,7 @@
           :biz-id="bizId"
           :disabled="editDisabled"
           :is-built-in="detailData.is_built_in"
+          :origin-receivers="type === 'add' ? [] : detailData.receivers"
           :type="type" />
       </BkFormItem>
     </DbForm>
@@ -326,7 +327,7 @@
 
     .receivers-selector-form-item {
       &.is-error {
-        .user-selector-container {
+        .dbm-user-selector-container {
           border-color: #ea3636;
           transition: all 0.15s;
         }

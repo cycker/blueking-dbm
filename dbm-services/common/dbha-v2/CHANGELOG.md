@@ -1,5 +1,21 @@
 # DBHA-v2 Change Log
 
+## v2.1.0-beta.3
+- 【新增】bwmgr 支持将 DBM 导出的集群 xlsx 转为白名单导入文件，并自动校验。
+- 【新增】tdbctl flush routing [force] 支持独立设置超时，默认 30s。
+- 【优化】enableWhiteList 拆分为 enableWhiteListForSwitch（默认开启）和 enableWhiteListForScan（默认关闭），探测默认不按白名单过滤，旧配置项不再生效。
+- 【修复】MySQL 切换默认超时调大：建连 3s → 10s，执行 SQL 6s → 30s。
+- 【修复】业务级通用告警 event_name 为空导致 BKMonitor 上报失败，改用事件 dbha_workflow_alarm。
+
+## v2.1.0-beta.2
+
+- 【新增】Admin 新增 HA Server 列表接口（gRPC ListHaServers、HTTP GET /api/admin/meta/ha-servers），从 etcd 查询 admin、analysis、receiver 各实例的运行信息。
+- 【优化】Discovery 改为按需创建 etcd 客户端。
+- 【修复】白名单匹配改为仅按集群域名判断。
+- 【修复】移除重复的切换指标，按 db_type + action_scope 标签合并，并自动适配 DB 类型。
+- 【修复】对可能导致扩散的指标标签 method、path、db_type 做收敛处理。
+- 【修复】etcd 异常时 Discovery 的 Watch 会卡住 Get、Close 等调用，导致 analysis 无法正常退出。
+
 ## v2.1.0-beta.1
 
 - 【新增】数据探测采集补充 6 种集群类型：RedisInstance、TwemproxyRedisInstance、TwemproxyTendisSSDInstance、PredixyTendisplusCluster、PredixyRedisCluster、PredixyTendisplusInstance。

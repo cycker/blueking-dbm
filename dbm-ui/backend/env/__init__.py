@@ -103,6 +103,21 @@ IAM_APP_URL = get_type_env(key="IAM_APP_URL", _type=str, default="https://iam.ex
 BK_IAM_RESOURCE_API_HOST = get_type_env(key="BK_IAM_RESOURCE_API_HOST", _type=str, default="https://bkdbm.example.com")
 BK_IAM_GRADE_MANAGER_ID = get_type_env(key="BK_IAM_GRADE_MANAGER_ID", _type=int, default=0)
 
+# IAM V4 相关配置
+# IAM版本开关，控制权限模型、鉴权、资源回调路由等所有IAM能力走V3还是V4
+BK_IAM_VERSION = get_type_env(key="BK_IAM_VERSION", _type=str, default="v3")
+ENABLE_IAM_V4 = BK_IAM_VERSION == "v4"
+BK_IAM_V4_APIGATEWAY = get_type_env(key="BK_IAM_V4_APIGATEWAY", _type=str, default="https://bkiam-apigw.example.com")
+# V4 系统的客户端列表，即允许调用本系统鉴权接口的app_code
+BK_IAM_V4_CLIENTS = get_type_env(key="BK_IAM_V4_CLIENTS", _type=list, default=["bk_dbm", "bk-dbm"])
+# V4 系统的管理员列表，用于IAM产品上管理本系统的模型与审批配置
+BK_IAM_V4_MANAGERS = get_type_env(key="BK_IAM_V4_MANAGERS", _type=list, default=["admin"])
+# V4 资源实例回调路径，与 BK_IAM_RESOURCE_API_HOST 拼接成 System.callback_url
+BK_IAM_V4_CALLBACK_PATH = get_type_env(key="BK_IAM_V4_CALLBACK_PATH", _type=str, default="/apis/iam/v4/resource/")
+
+# IAM V4 影子校验：V3 真实鉴权模式下后台异步比对 V4 结果，仅打日志、不参与鉴权
+IAM_V4_SHADOW_ENABLE = get_type_env(key="IAM_V4_SHADOW_ENABLE", _type=bool, default=False)
+
 # APIGW 相关配置
 BK_APIGW_NAME = get_type_env(key="BK_APIGW_NAME", _type=str, default="bkdbm")
 BK_APIGW_MCP_NAME = get_type_env(key="BK_APIGW_MCP_NAME", _type=str, default="bkdbm-mcp")
@@ -182,6 +197,11 @@ POLARIS_URL = get_type_env(key="POLARIS_URL", _type=str, default="http://polaris
 # 仅在容器中暴露service，提供内部服务调用，不暴露ingress
 SERVICE_ONLY = get_type_env(key="SERVICE_ONLY", _type=str, default=False)
 
+# 当前进程是否提供 backend-api 专属接口。这类接口只凭来源IP鉴权，应只暴露在仅允许云区域nginx访问的入口上。
+# 目前仅覆盖反向查询接口 /apis/proxypass/reverse_api/，proxypass 下的其他接口有 token 鉴权，不受此开关影响。
+# 默认开启以兼容存量部署；已部署独立 backend-api 入口、且云区域nginx已指向该入口的环境，应在 saas-api 上关闭
+ENABLE_BACKEND_API = get_type_env(key="ENABLE_BACKEND_API", _type=bool, default=True)
+
 ADMIN_USERS = [u.strip() for u in get_type_env(key="ADMIN_USERS", default="admin", _type=str).split(",") if u]
 
 # 标准运维
@@ -251,7 +271,7 @@ DRS_PORT = get_type_env(key="DRS_PORT", _type=int, default=8888)
 DBM_PORT = get_type_env(key="DBM_PORT", _type=int, default=80)
 MANAGE_PORT = get_type_env(key="MANAGE_PORT", _type=int, default=8080)
 # nginx转发dbm的地址(如果没有则取BK_SAAS_HOST)
-DBM_EXTERNAL_ADDRESS = get_type_env(key="DBM_EXTERNAL_ADDRESS", _type=str, default=BK_SAAS_HOST)
+DBM_EXTERNAL_ADDRESS = get_type_env(key="DBM_EXTERNAL_ADDRESS", _type=str, default=BK_SAAS_BACKEND_HOST)
 # 云区域容器化开关
 CLOUD_CONTAINER_ENABLE = get_type_env(key="CLOUD_CONTAINER_ENABLE", _type=bool, default=False)
 
@@ -263,8 +283,10 @@ CHART_VERSION = get_type_env(key="CHART_VERSION", _type=str, default="")
 ASYMMETRIC_CIPHER_TYPE = get_type_env(key="ASYMMETRIC_CIPHER_TYPE", _type=str, default=AsymmetricCipherType.RSA.value)
 SYMMETRIC_CIPHER_TYPE = get_type_env(key="SYMMETRIC_CIPHER_TYPE", _type=str, default=SymmetricCipherType.AES.value)
 
-# 数据平台应用 token
+# 数据平台应用 token。敏感文本分类已改走插件网关，不再读取该 token
 BKDATA_DATA_TOKEN = get_type_env(key="BKDATA_DATA_TOKEN", _type=str, default="")
+# 敏感文本分类插件网关，形如 http://bp-sens-text.apigw.o.woa.com/prod/
+BKDATA_SENSI_TEXT_APIGW_DOMAIN = get_type_env(key="BKDATA_SENSI_TEXT_APIGW_DOMAIN", _type=str, default="")
 # 敏感信息检测 agent 网关地址，形如 https://xxx.apigw.example.com/stag/，配置后走 V2 检测
 BKDATA_SENSI_AGENT_URL = get_type_env(key="BKDATA_SENSI_AGENT_URL", _type=str, default="")
 # 敏感信息检测模式：ai(大模型语义检测，2-5s) / regex(正则规则检测，<100ms)

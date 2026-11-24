@@ -27,7 +27,7 @@ from backend.constants import BACKUP_SYS_STATUS, IP_PORT_DIVIDER
 from backend.db_meta import api as metaApi
 from backend.db_meta.api.cluster import nosqlcomm
 from backend.db_meta.api.cluster.apis import query_cluster_by_hosts
-from backend.db_meta.enums import InstanceStatus
+from backend.db_meta.enums import InstanceRole, InstanceStatus
 from backend.db_meta.enums.cluster_type import ClusterType
 from backend.db_meta.models import AppCache, Cluster, StorageInstance
 from backend.db_package.models import Package
@@ -64,6 +64,7 @@ from backend.flow.consts import (
 )
 from backend.flow.engine.bamboo.scene.redis.redis_rollback.plan import RollbackPlan, rollback_manifest
 from backend.flow.utils.base.payload_handler import PayloadHandler
+from backend.flow.utils.redis.redis_package_resolver import RedisUpgradePackageResolver, RedisUpgradeTarget
 from backend.flow.utils.redis.redis_proxy_util import (
     get_cache_backup_mode,
     get_twemproxy_cluster_server_shards,
@@ -2021,6 +2022,11 @@ class RedisActPayload(object):
                     # "redis_slave_set": cluster_meta["redis_slave_set"], # 似乎没有用.
                     "proxy_pass": proxy_pass,
                     "storage_pass": storage_pass,
+                    # cache 互切降级方向(old_master 变从库)的 appendonly 目标值由它决定:
+                    # rdb 模式从库不开 AOF, aof/未配置(空)时开 AOF
+                    "cache_backup_mode": get_cache_backup_mode(
+                        bk_biz_id=cluster_meta["bk_biz_id"], cluster_id=params.get("cluster_id", 0)
+                    ),
                 },
                 "switch_info": params["switch_info"],  # list
                 "switch_condition": params["switch_condition"],  # dict
@@ -2467,7 +2473,13 @@ class RedisActPayload(object):
         params = kwargs["params"]
         passwd_ret = PayloadHandler.redis_get_password_by_domain(params["immute_domain"])
         cluster = Cluster.objects.get(immute_domain=params["immute_domain"])
-        cluster_info = metaApi.cluster.nosqlcomm.get_cluster_detail(cluster.id)[0]
+        # 只需要可连接的 master；展开整个集群会因已下架或缺失机器的其他实例而失败。
+        masters = cluster.storageinstance_set.filter(
+            instance_role=InstanceRole.REDIS_MASTER.value, machine__ip__isnull=False
+        ).values_list("machine__ip", "port")
+        redis_master_set = ["{}{}{}".format(ip, IP_PORT_DIVIDER, port) for ip, port in masters]
+        if not redis_master_set:
+            raise ValueError(_("集群 {} 没有可用的 master，无法执行 cluster forget").format(cluster.immute_domain))
 
         return {
             "db_type": DBActuatorTypeEnum.Redis.value,
@@ -2475,9 +2487,9 @@ class RedisActPayload(object):
             "payload": {
                 "cluster_meta": {
                     "storage_pass": passwd_ret.get("redis_password"),
-                    "immute_domain": cluster_info["immute_domain"],
-                    "cluster_type": cluster_info["cluster_type"],
-                    "redis_master_set": cluster_info["redis_master_set"],
+                    "immute_domain": cluster.immute_domain,
+                    "cluster_type": cluster.cluster_type,
+                    "redis_master_set": redis_master_set,
                 },
                 "forget_list": params["forget_instances"],
             },
@@ -2551,7 +2563,8 @@ class RedisActPayload(object):
         params = kwargs["params"]
         db_version = params["db_version"]
         cluster_type = params.get("cluster_type", "")
-        redis_pkg = get_latest_redis_package_by_version(db_version, name_prefix=params.get("pkg_name_prefix"))
+        upgrade_target = RedisUpgradeTarget.from_dict(params.get("upgrade_target"))
+        redis_pkg = get_latest_redis_package_by_version(db_version, upgrade_target=upgrade_target)
         payload = {
             "pkg": redis_pkg.name,
             "pkg_md5": redis_pkg.md5,
@@ -2746,21 +2759,19 @@ class RedisActPayload(object):
     # redis proxy 原地升级/降级
     def redis_proxy_upgrade_online_payload(self, **kwargs) -> dict:
         params = kwargs["params"]
-        # target_version_file could be None
-        proxy_pkg_prefix = params.get("proxy_pkg_prefix", None)
         proxy_pkg: Package = None
         if is_twemproxy_proxy_type(params["cluster_type"]):
-            proxy_pkg = get_redis_package_v2_release(
-                pkg_type=MediumEnum.Twemproxy,
-                series=TwemproxyVersion.TwemproxyLatest.value,
-                name_prefix=proxy_pkg_prefix,
-            )
+            pkg_type, series = MediumEnum.Twemproxy, TwemproxyVersion.TwemproxyLatest.value
         elif is_predixy_proxy_type(params["cluster_type"]):
-            proxy_pkg = get_redis_package_v2_release(
-                pkg_type=MediumEnum.Predixy,
-                series=PredixyVersion.PredixyLatest.value,
-                name_prefix=proxy_pkg_prefix,
-            )
+            pkg_type, series = MediumEnum.Predixy, PredixyVersion.PredixyLatest.value
+        else:
+            pkg_type, series = None, None
+        upgrade_target = RedisUpgradeTarget.from_dict(params.get("upgrade_target"))
+        if upgrade_target and pkg_type:
+            # 升级指定目标版本: 不限定版本阶段与 *-latest 系列
+            proxy_pkg = RedisUpgradePackageResolver([pkg_type.value]).package(upgrade_target)
+        elif pkg_type:
+            proxy_pkg = get_redis_package_v2_release(pkg_type=pkg_type, series=series)
         return {
             "db_type": DBActuatorTypeEnum.Redis.value,
             "action": DBActuatorTypeEnum.Redis.value + "_" + RedisActuatorActionEnum.PROXY_VERSION_UPGRADE.value,
@@ -2799,6 +2810,11 @@ class RedisActPayload(object):
             "action": DBActuatorTypeEnum.Redis.value + "_" + RedisActuatorActionEnum.CLUSTER_FAILOVER.value,
             "payload": {
                 "redis_password": params["redis_password"],
+                # 可选; cache 口径集群传 cluster_type 后, actuator 会在 failover 前后
+                # 翻转 appendonly(升主前关、降从后开), 避免从库带着 AOF 被提升为主.
+                "cluster_type": params.get("cluster_type", ""),
+                # 降级方向(old_master 变从库)的 appendonly 目标值: rdb → no, aof/未配置 → yes
+                "cache_backup_mode": params.get("cache_backup_mode", ""),
                 "redis_master_slave_pairs": params["redis_master_slave_pairs"],
                 "force": False,
             },

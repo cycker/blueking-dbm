@@ -19,6 +19,7 @@ from django.utils.translation import gettext_lazy as _
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import serializers, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
@@ -40,6 +41,7 @@ from backend.iam_app.handlers.drf_perm.base import RejectPermission, ResourceAct
 from backend.iam_app.handlers.drf_perm.cluster import ClusterDetailPermission, InstanceDetailPermission
 from backend.iam_app.handlers.drf_perm.ticket import (
     BatchApprovalPermission,
+    TicketListPermission,
     create_ticket_permission,
     ticket_flows_config_permission,
 )
@@ -68,7 +70,17 @@ from backend.ticket.filters import (
 )
 from backend.ticket.flow_manager.manager import TicketFlowManager
 from backend.ticket.handler import CheckDomainRepeatHandler, TicketHandler
-from backend.ticket.models import ClusterOperateRecord, Flow, InstanceOperateRecord, Ticket, TicketFlowsConfig, Todo
+from backend.ticket.itsm_callback import verify_callback
+from backend.ticket.models import (
+    ClusterOperateRecord,
+    Flow,
+    InstanceOperateRecord,
+    Ticket,
+    TicketFlowsConfig,
+    TicketSnapshot,
+    Todo,
+)
+from backend.ticket.modify import TicketModifyHandler
 from backend.ticket.serializers import (
     BatchTicketOperateSerializer,
     BatchTodoOperateSerializer,
@@ -92,9 +104,12 @@ from backend.ticket.serializers import (
     SensitiveTicketSerializer,
     TicketFlowDescribeSerializer,
     TicketFlowSerializer,
+    TicketModifySerializer,
     TicketSerializer,
+    TicketSnapshotSerializer,
     TicketTypeResponseSLZ,
     TicketTypeSLZ,
+    TicketVersionSerializer,
     TodoOperateSerializer,
     TodoSerializer,
     UpdateTicketFlowConfigSerializer,
@@ -130,6 +145,8 @@ class TicketViewSet(viewsets.AuditedModelViewSet):
     pagination_class = AuditedLimitOffsetPagination
 
     def _get_custom_permissions(self):
+        if self.action == "list":
+            return [TicketListPermission()]
         # 创建单据，关联单据类型的动作
         if self.action == "create":
             return create_ticket_permission(self.request.data["ticket_type"])
@@ -147,7 +164,7 @@ class TicketViewSet(viewsets.AuditedModelViewSet):
         elif self.action == "get_instance_operate_records":
             return [InstanceDetailPermission()]
         # 单据详情，关联单据查看动作
-        elif self.action in ["retrieve", "flows", "retry_flow", "revoke_flow"]:
+        elif self.action in ["retrieve", "flows", "retry_flow", "revoke_flow", "get_modify_records"]:
             instance_getter = lambda request, view: [request.parser_context["kwargs"]["pk"]]  # noqa
             return [ResourceActionPermission([ActionEnum.TICKET_VIEW], ResourceEnum.TICKET, instance_getter)]
         # 单据流程设置，关联单据流程设置动作
@@ -158,14 +175,17 @@ class TicketViewSet(viewsets.AuditedModelViewSet):
             "delete_ticket_flow_config",
         ]:
             return ticket_flows_config_permission(self.action, self.request)
+        # 改单接口：权限由 modify handler 内部校验(审批人/提单人/补货处理人)
+        elif self.action == "modify":
+            return []
         # 对于处理todo的接口，可以不用鉴权，todo本身会判断是否是确认人
         elif self.action in ["process_todo", "batch_process_todo", "batch_process_ticket", "cluster_disable_todo"]:
             return []
         # 其他非敏感GET接口，不鉴权
         elif self.action in [
-            "list",
             "flow_types",
             "get_nodes",
+            "get_ticket_version",
             "get_host_todo_count",
             "get_cluster_disable_count",
             "get_tickets_count",
@@ -180,7 +200,7 @@ class TicketViewSet(viewsets.AuditedModelViewSet):
         ]:
             return []
         # 回调和处理无需鉴权
-        elif self.action in ["callback"]:
+        elif self.action in ["itsm_callback"]:
             return []
 
         return [RejectPermission()]
@@ -188,7 +208,7 @@ class TicketViewSet(viewsets.AuditedModelViewSet):
     @classmethod
     def _get_login_exempt_view_func(cls):
         # 需要豁免的接口方法与名字
-        return {"post": [cls.callback.__name__], "put": [], "get": [], "delete": []}
+        return {"post": [cls.itsm_callback.__name__], "put": [], "get": [], "delete": []}
 
     def filter_queryset(self, queryset):
         """filter_class可能导致预取的todo失效，这里重新取一次"""
@@ -371,7 +391,8 @@ class TicketViewSet(viewsets.AuditedModelViewSet):
     def flows(self, request, *args, **kwargs):
         """补充todo列表"""
         ticket = self.get_object()
-        serializer = self.get_serializer(ticket.flows.select_related("flowsummary").order_by("id"), many=True)
+        flows = ticket.ordered_flows(ticket.flows.select_related("flowsummary"))
+        serializer = self.get_serializer(flows, many=True)
         return Response(serializer.data)
 
     @common_swagger_auto_schema(
@@ -379,11 +400,30 @@ class TicketViewSet(viewsets.AuditedModelViewSet):
         request_body=serializers.Serializer(),
         tags=[TICKET_TAG],
     )
-    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
-    def callback(self, request, pk):
-        ticket = Ticket.objects.get(id=pk)
-        manager = TicketFlowManager(ticket=ticket)
-        manager.run_next_flow()
+    @action(methods=["POST"], detail=True, permission_classes=[AllowAny], url_path="callback", url_name="callback")
+    def itsm_callback(self, request, pk):
+        logger.info(_("收到 ITSM 回调：单据 ID=%s"), pk)
+        stage = _("查询单据")
+        try:
+            ticket = Ticket.objects.get(id=pk)
+            stage = _("校验回调凭证")
+            verify_callback(ticket, request.data)
+            stage = _("推进单据流程")
+            logger.info(_("ITSM 回调开始推进流程：单据 ID=%s"), pk)
+            manager = TicketFlowManager(ticket=ticket)
+            manager.run_next_flow()
+        except PermissionDenied:
+            raise
+        except Exception as exc:
+            # 验证接口的异常消息可能包含请求参数，只记录异常类型，避免泄露回调凭证。
+            logger.error(
+                _("ITSM 回调处理失败：单据 ID=%s，失败阶段=%s，异常类型=%s"),
+                pk,
+                stage,
+                type(exc).__name__,
+            )
+            raise
+        logger.info(_("ITSM 回调处理完成：单据 ID=%s"), pk)
         return Response()
 
     @common_swagger_auto_schema(
@@ -422,6 +462,72 @@ class TicketViewSet(viewsets.AuditedModelViewSet):
         remark = data["remark"]
         TicketHandler.revoke_ticket(ticket_ids, operator=request.user.username, remark=remark)
         return Response()
+
+    @common_swagger_auto_schema(
+        operation_summary=_("改单"),
+        request_body=TicketModifySerializer(),
+        responses={status.HTTP_200_OK: TicketSerializer(label=_("改单后的单据"))},
+        tags=[TICKET_TAG],
+    )
+    @action(methods=["POST"], detail=True, serializer_class=TicketModifySerializer)
+    def modify(self, request, pk):
+        """改单统一入口：代为修改/重新编辑/调整申请，权限与状态校验在 modify handler 内完成"""
+        data = self.params_validate(self.get_serializer_class(), context={"ticket_ctx": TicketContext()})
+        ticket = TicketModifyHandler.modify(
+            ticket_id=pk,
+            operator=request.user.username,
+            mode=data["mode"],
+            details=data["details"],
+            change_details=data["change_details"],
+            ticket_remark=data.get("ticket_remark") or "",
+            remark=data.get("remark") or "",
+            version=data.get("version"),
+            change_count=data.get("change_count") or 0,
+            config=data.get("config"),
+        )
+        # 注意：不能复用 self.get_serializer(ticket)，@action 的 serializer_class 是请求体校验器
+        # TicketModifySerializer，会覆盖掉视图默认的 TicketSerializer，导致序列化出错
+        return Response(TicketSerializer(ticket, context=self.get_serializer_context()).data)
+
+    @common_swagger_auto_schema(
+        operation_summary=_("获取改单记录"),
+        responses={status.HTTP_200_OK: TicketSnapshotSerializer(many=True)},
+        tags=[TICKET_TAG],
+    )
+    @action(methods=["GET"], detail=True, filter_class=None, pagination_class=None)
+    def get_modify_records(self, request, pk):
+        """单据改单快照记录，用于前端渲染变更对比抽屉"""
+        ticket = self.get_object()
+        records = TicketSnapshot.objects.filter(ticket_id=ticket.id).order_by("id")
+        return Response(TicketSnapshotSerializer(records, many=True).data)
+
+    @common_swagger_auto_schema(
+        operation_summary=_("获取单据版本号"),
+        tags=[TICKET_TAG],
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        filter_class=None,
+        pagination_class=None,
+        serializer_class=TicketVersionSerializer,
+    )
+    def get_ticket_version(self, request, *args, **kwargs):
+        """获取单据版本号"""
+        data = self.params_validate(self.get_serializer_class())
+        ticket_ids = [int(ticket_id) for ticket_id in data["ticket_ids"].split(",")]
+
+        # 按 ticket_id 聚合统计快照条数，即版本号
+        version_qs = (
+            TicketSnapshot.objects.filter(ticket_id__in=ticket_ids).values("ticket_id").annotate(version=Count("id"))
+        )
+
+        # 默认所有单据初始版本号为 0（无任何快照记录）
+        version_map = {ticket_id: 0 for ticket_id in ticket_ids}
+        for item in version_qs:
+            version_map[item["ticket_id"]] = item["version"]
+
+        return Response(version_map)
 
     @swagger_auto_schema(
         operation_summary=_("获取单据类型列表"),
